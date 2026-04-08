@@ -1,0 +1,8 @@
+# Dossiers virtuels
+.venv/
+venv/
+env/
+__pycache__/
+
+# Fichiers de configuration locaux
+.env
