@@ -20,15 +20,19 @@ st.set_page_config(page_title="Legal Agentics AI", layout="wide")
 # =====================================================================
 def get_rag_context(contract_name):
     """
-    Fonction factice simulant la récupération de contexte depuis ChromaDB.
-    À remplacer ultérieurement par la VRAIE fonction de Hadrien (Engineer 2).
+    Fonction simulant la récupération RAG (ChromaDB) de Hadrien en lisant le fichier directement.
     """
-    mocks = {
-        "Contrat Skema A": "Article 1: Le loyer mensuel est fixé à 1500 euros.\nArticle 2: La durée du bail est de 36 mois.\nArticle 3: Le présent contrat inclut une clause d'indexation basée sur l'IRL.",
-        "Contrat Skema B": "Bail commercial.\nLoyer: 800 euros/mois.\nDurée: 12 mois.\nAucune clause spécifique d'indexation n'est mentionnée.",
-        "Contrat Skema C": "Contrat de location.\nLoyer: 2500 euros.\nDurée: 24 mois.\nClause d'indexation annuelle présente.\nClause additionnelle : Le locataire devra s'acquitter de toutes les réparations structurelles du bâtiment (clause suspectée abusive)."
+    file_mapping = {
+        "Commercial Lease Agreement 1": "Commercial Lease Agreement_1.txt",
+        "Commercial Lease Agreement 2": "Commercial Lease Agreement-2.txt",
+        "Commercial Lease Agreement 3": "Commercial Lease Agreement-3.txt",
     }
-    return mocks.get(contract_name, "Aucun contexte trouvé pour ce contrat.")
+    filename = file_mapping.get(contract_name)
+    if filename and os.path.exists(filename):
+        with open(filename, "r", encoding="utf-8") as f:
+            # On retourne un extrait significatif ou tout le texte (les modèles Llama-3-70b le gèrent très bien).
+            return f.read()
+    return "Erreur : Fichier introuvable. Avez-vous copié les fichiers sur le bureau ?"
 
 # =====================================================================
 # 2. Logique Agentique (LangChain)
@@ -54,25 +58,15 @@ def analyze_contract_with_agent(contract_text):
 
     # Définition du prompt système réclamé par le cahier des charges
     # (Sera remplacé plus tard par le prompt expert d'Alix).
-    # Le System Prompt "Expert" (Travail de Business 2)
-    system_message = """Tu es "Legal Agentics AI", un avocat digital ultra-qualifié spécialisé en droit des baux commerciaux internationaux et français.
-Ta mission stricte est d'analyser des contrats de bail complexes et d'extraire la grille financière et de risque légal.
+    # Le System Prompt "Expert" (Travail de Business 2 : Fichier injecté dynamiquement)
+    with open("Prompt_for_GENAI.txt", "r", encoding="utf-8") as f:
+        alix_prompt = f.read()
 
-Voici ta méthode de raisonnement étape par étape :
-Étape 1 - Loyer : Repère la section "Rent" ou "Base Rent". Isole le loyer MENSUEL. Ne le confonds pas avec le "Security Deposit". Si le loyer est annuel, donne son équivalent mensuel.
-Étape 2 - Durée : Identifie les dates dans la section "Term" ou "Durée". Convertis toujours cette durée calendaire en MOIS. Ex: 5 ans = 60 mois.
-Étape 3 - Audit des clauses abusives : L'équilibre contractuel est fondamental. Analyse minutieusement la répartition des charges ("Utilities", "Repairs", "Insurance", "Taxes"). Si le contrat impose au locataire (Tenant) de payer ou d'assurer des "réparations structurelles" du bâtiment (Structural components) qui reviennent normalement au propriétaire, marque cette clause comme POTENTIELLEMENT ABUSIVE. Réponds par "Oui" ou "Non" suivi d'une courte preuve.
-Étape 4 - Enquête OSINT sur l'Indexation : Cherche toute mention relative à la révision du loyer ("Indexation", "Inflation", "IRL").
-👉 RÈGLE ABSOLUE : Si une telle clause est détectée, tu AS L'OBLIGATION d'utiliser ton outil externe (Tavily Search) pour chercher sur Internet "Indice de Référence des Loyers INSEE 2026" (ou la dernière valeur officielle la plus récente).
-👉 RÈGLE ABSOLUE : S'il n'y a pas d'indexation, écris "Non applicable".
-
-Format de sortie strict : RIEN D'AUTRE QU'UN BLOC JSON PARFAITEMENT VALIDE.
-{
-    "Loyer mensuel": "...",
-    "Durée en mois": "...",
-    "Présence de clause abusive": "Oui/Non - [Brève explication]",
-    "IRL 2026": "..."
-}"""
+    system_message = alix_prompt + """\n
+[OSINT Task - IMPERATIVE]
+Since this contract falls under US Law without strict rent control, you MUST use the Tavily Search Tool on the internet to find the current "US Federal Reserve Inflation Rate" (or latest US CPI) to evaluate macro-economic context. 
+You MUST execute this search and include the found rate in your output JSON under the exact key "US_Inflation_Rate".
+"""
 
     # Initialisation de l'agent avec LangGraph (le standard actuel)
     agent_executor = create_react_agent(
@@ -105,7 +99,7 @@ def main():
         # Menu déroulant (PAS d'upload de PDF selon cahier des charges)
         contrat_selection = st.selectbox(
             "Sélectionnez le contrat à analyser :",
-            ["Contrat Skema A", "Contrat Skema B", "Contrat Skema C"]
+            ["Commercial Lease Agreement 1", "Commercial Lease Agreement 2", "Commercial Lease Agreement 3"]
         )
         
         # Bouton d'action
@@ -118,8 +112,8 @@ def main():
         # 1. Récupération du contexte (appel à la fonction mockée)
         rag_context = get_rag_context(contrat_selection)
         
-        # 2. Lancement de l'agent avec l'animation imposée
-        with st.spinner("Agent is searching INSEE for current inflation rates..."):
+        # 2. Lancement de l'agent avec l'animation OSINT américaine
+        with st.spinner("Agent is calling Tavily for current US inflation rates 🇺🇸..."):
             resultat_brut = analyze_contract_with_agent(rag_context)
             
         # 3. Affichage des résultats JSON
@@ -133,12 +127,14 @@ def main():
                 
                 # Affichage sous forme de vue table / métriques (propre)
                 col1, col2 = st.columns(2)
-                col1.metric("Loyer Mensuel", donnees_json.get("Loyer mensuel", "Non trouvé"))
-                col2.metric("Durée du Bail", donnees_json.get("Durée en mois", "Non trouvée"))
+                col1.metric("Loyer Mensuel", donnees_json.get("monthly_rent", "Non trouvé"))
+                col2.metric("Durée du Bail", donnees_json.get("duration_months", "Non trouvée"))
                 
                 col3, col4 = st.columns(2)
-                col3.info(f"**Clause abusive détectée :**\n{donnees_json.get('Présence de clause abusive', 'Information non trouvée')}")
-                col4.warning(f"**Indice de Référence des Loyers (IRL) 2026 :**\n{donnees_json.get('IRL 2026', 'Non défini')}")
+                abusive_status = str(donnees_json.get("abusive_clause_detected", "Non trouvé"))
+                abusive_reason = str(donnees_json.get("abusive_reason", ""))
+                col3.info(f"**Clause abusive détectée :**\n{abusive_status} - {abusive_reason}")
+                col4.warning(f"**Taux d'inflation actuel (US) via OSINT :**\n{donnees_json.get('US_Inflation_Rate', 'Non défini')}")
                 
                 # Option technique : le JSON Brut
                 with st.expander("Voir les données brutes (JSON)"):
