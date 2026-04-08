@@ -29,10 +29,14 @@ def get_rag_context(contract_name):
     }
     filename = file_mapping.get(contract_name)
     if filename and os.path.exists(filename):
-        with open(filename, "r", encoding="utf-8") as f:
-            # On retourne un extrait significatif ou tout le texte (les modèles Llama-3-70b le gèrent très bien).
-            return f.read()
-    return "Erreur : Fichier introuvable. Avez-vous copié les fichiers sur le bureau ?"
+        try:
+            with open(filename, "r", encoding="utf-8") as f:
+                return f.read()
+        except UnicodeDecodeError:
+            # Fallback robuste pour les fichiers txt créés sous Windows (ANSI)
+            with open(filename, "r", encoding="windows-1252", errors="replace") as f:
+                return f.read()
+    return "Erreur : Fichier introuvable."
 
 # =====================================================================
 # 2. Logique Agentique (LangChain)
