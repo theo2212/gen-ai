@@ -28,17 +28,17 @@ Le projet a évolué d'une boucle simple à un **système Multi-Agents sophistiq
 
 ### 3. Workflow Multi-Agents (LangGraph)
 Le système orchestre trois agents spécialisés pour garantir une séparation des responsabilités (Separation of Concerns) :
-1.  **Researcher Agent (Théo)** : Extraction des métriques financières et recherche OSINT (Tavily API) pour l'inflation.
-2.  **Compliance Auditor (Alix)** : Analyse juridique comparative. Cet agent confronte les clauses du bail aux PDF de lois réelles (retrouvés via RAG) pour détecter les clauses abusives.
-3.  **Final Validator (Thomas)** : Contrôle de cohérence, élimination des hallucinations et formatage JSON.
+1.  **Researcher Agent** : Extraction des métriques financières et recherche OSINT (Tavily API) pour l'inflation. EXPLIQUER QUEL MODELE EST UTILISE, COMMENT IL LANCE LES RECHERCHES TAVILY
+2.  **Compliance Auditor** : Analyse juridique comparative. Cet agent confronte les clauses du bail aux PDF de lois réelles (retrouvés via RAG) pour détecter les clauses abusives. EXPLIQUER QUEL MODELE EST UTILISE, EXPLIQUER QUE LES LOIS DOIVENT ETRE DANS L'APP
+3.  **Final Validator** : Contrôle de cohérence, élimination des hallucinations et formatage JSON. EXPLIQUER QUEL MODELE EST UTILISE, COMMENT IL GERE L ORCHESTRATION EN DETAIL, COMMENT IL RESPOND AUX QUESTIONS VIA LE CHAT, QUEL CONTEXTE IL ACCEDE POUR LES QUESTIONS
 
 ### 4. RAG Engine Multi-Sources & Jurisprudence
 Contrairement aux architectures RAG standards, **Contracta.ai** utilise un `MultiSourceRetriever`. Le système est capable de filtrer sa recherche dans deux bases de données distinctes :
 *   **Base Contrats** : Le document PDF/TXT chargé par l'utilisateur.
 *   **Base Légale (Jurisprudence)** : Une bibliothèque de lois d'États US (Alabama, New York).
-L'IA effectue une **analyse de conformité régulatoire** en temps réel en comparant le contrat aux textes législatifs en vigueur dans l'État sélectionné.
+L'IA effectue une **analyse de conformité régulatoire** en temps réel en comparant le contrat aux textes législatifs en vigueur dans l'État sélectionné. EXPLQUER COMME ON CHOISIS L'ETAT ET QUE LE MODELE ARRIVE A CHOISIR SEUL GRACE AU PORMPT ET INFO DANS LE DOC QULE BD IL DOIT SE REFERER
 
-**Bénéfice Technique :** Cette spécialisation réduit drastiquement les hallucinations et permet un contrôle granulaire de chaque étape de l'audit juridique.
+**Bénéfice Technique :** Cette spécialisation réduit drastiquement les hallucinations et permet un contrôle granulaire de chaque étape de l'audit juridique. EXPLIQUER QUE C'EST UNE SECURITE INDISPENSABLE DANS UN CADRE JRUIDIQUE COMPLEXE QUE DES PETITS MODELES COMME ON UTILISE SOIT ENORMEMENT ENCADRE SANS POSSIBILITE D HALLUCINER
 
 ---
 
@@ -54,7 +54,7 @@ Nous avons implémenté une stratégie de **Recursive Character Splitting** :
 *Justification Technique :* Dans un bail commercial, une clause complète est généralement comprise entre 500 et 800 caractères. Un segment de 1000 caractères garantit que l'agent dispose de l'intégralité d'une clause. Le chevauchement de 20% évite de scinder des chiffres clés (montant du loyer) entre deux blocs.
 
 ### 3.3 Retrieval (Récupération)
-Le système utilise une recherche par similarité cosinus pour extraire les **5 morceaux (k=5)** les plus pertinents. Cette valeur a été optimisée pour fournir assez de contexte à l'agent sans saturer sa fenêtre de contexte.
+Le système utilise une recherche par similarité cosinus pour extraire les **5 morceaux (k=5)** les plus pertinents. Cette valeur a été optimisée pour fournir assez de contexte à l'agent sans saturer sa fenêtre de contexte. SI VOUS AVEZ FAIT DES TEST POUR ARRIVER A CETTE CONCLUSION LE DETAILLER
 
 ---
 
@@ -64,7 +64,7 @@ Le système utilise une recherche par similarité cosinus pour extraire les **5 
 L'agent utilise un prompt système avancé le définissant comme un **"Elite Real Estate Jurist"**. Ce persona impose une rigueur terminologique et un ton professionnel.
 
 ### 4.2 Few-Shot Prompting
-Pour stabiliser l'extraction JSON, nous avons intégré des exemples de type "Few-Shot". En montrant à l'IA des exemples de contrats bruts suivis de leur analyse JSON parfaite, nous réduisons le taux d'erreur de formatage à quasiment 0%.
+Pour stabiliser l'extraction JSON, nous avons intégré des exemples de type "Few-Shot". En montrant à l'IA des exemples de contrats bruts suivis de leur analyse JSON parfaite, nous réduisons le taux d'erreur de formatage à quasiment 0%. ON PEUT PARLER DE LA TEMPERATURE AUSSI POUR REDUIRE LES HALLU
 
 ---
 
@@ -72,12 +72,14 @@ Pour stabiliser l'extraction JSON, nous avons intégré des exemples de type "Fe
 
 Contracta.ai se distingue par son utilisation d'outils externes (Function Calling). Lorsque l'agent identifie un besoin de calcul financier ou une recherche d'indexation, il déclenche l'outil **Tavily Search**. 
 Exemple : Pour un bail à New York, l'agent récupère en temps réel le taux d'inflation de la Réserve Fédérale pour contextualiser l'augmentation du loyer proposée.
+DETAILLER COMMENT LA SEARCH EST TRIGGER
 
 ## 6. Expertise Spécifique : "Alix's Shield" & Red Flags
 Pour répondre aux exigences pointues d'audit, nous avons intégré un module de détection de **clauses prédatrices** :
 - **Unreasonable Termination** : Détection des droits d'expulsion sans motif ou sous préavis < 30 jours.
 - **Predatory Acceleration** : Identification des clauses exigeant le solde complet du bail pour un retard mineur (24h).
 - **Structural Pass-Through** : Flag automatique des transferts de coûts de structure (toit, fondation) vers le locataire.
+- DEVELOPPER SUR LE FAIT QUE C EST UN TRAVAIL DE JURISTE, QU'ON A PU UTILISER LE BON SENS MAIS QUE DES PROS SERAIENT BIEN PLUS EXIGEANTS ET AVEC LA SIMPLICITE D UTILISER DU LANGUAGE NATUREL LA LISTE DU SHIELD PEUT ETRE ETENDUE
 
 ## 7. Architecture de Conformité : Le Principe de Précaution
 Une innovation majeure de notre solution est la gestion de l'ambiguïté juridique :
@@ -87,6 +89,8 @@ Une innovation majeure de notre solution est la gestion de l'ambiguïté juridiq
 ---
 
 ## 8. Évaluation Critique, Sécurité & Éthique
+
+FAUT QU ON PARLE ENSEMBLE DE CETTE PARTIE PCQ MALGRE CERTAINE PRECAUTION CA BREAK QUAND MEME, DONC DIRE CE QUI EST FAIT POUR LA SECURITE ET FAIRE DES REFERENCE A MON DOC POUR PLSU DE DETAIL ET MITIGATION
 
 ### 6.1 Suivi des Hallucinations
 Un module "Hallucination Tracker" a été développé. Il compare les données extraites au contenu des chunks RAG. Si une information (ex: un montant de loyer) n'est pas littéralement présente dans la source, l'utilisateur est averti.
@@ -101,6 +105,7 @@ Nous avons identifié que le modèle peut présenter un biais de conservatisme, 
 
 ## 7. Conclusion
 Contracta.ai démontre la viabilité des architectures Agentic RAG pour des cas d'usage industriels complexes. Le système allie la puissance de calcul des LLM modernes à la rigueur de recherche du RAG, offrant une solution robuste de "Copilote Juridique".
+POSSIBILITE DE FAIRE UNE OUVERTURE SUR CE QUE PERMET LE RAG ET L AGENTIQUE POUR LES METIERS TRES AUDITE COMME EN BANQUE, PAS FORCEMENT BESOIN DE XAI SI LE MODELE REFERE TOUT LE TEMPS DIRECTEMENT A DES ARTICLES DE LOIS OU DOCUMENTS, TRACABILITE PARFAITE ET POSSIBILITE POUR LES HUMAINS DE TRAVAILLER AVEC.
 
 ---
 *(Fin du rapport technique - Prêt pour conversion DOCX)*
