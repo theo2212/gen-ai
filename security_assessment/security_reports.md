@@ -1,5 +1,7 @@
 The following security and evaluation report details the manual red teaming and regression testing executed against the Contracta.ai architecture. To rigorously assess the system's reliability, boundary adherence, and resilience to adversarial attacks, we followed a structured, three-phase testing roadmap. This systematic approach ensures that critical vulnerabilities—ranging from conversational prompt hijacking to RAG data poisoning and malicious payload execution—are comprehensively identified, documented, and successfully mitigated.
 
+Note: The ".html" files in this folder are ScreenShots captured thanks to "SingleFile" allowing to see all the content of the page, Github cannot render it properly, it needs to be downloaded to see the chat.
+
 ## Phase 1 Testing: RAG Boundaries and Persona Hijacking
 
 **Objective:** To evaluate the conversational agent's (`chat_with_contract`) reliance on the retrieved context and its resilience against direct prompt injection (jailbreaking).  
