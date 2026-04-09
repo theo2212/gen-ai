@@ -1,16 +1,13 @@
 import os
 import shutil
-from typing import Optional
+import re
+from typing import Optional, List
 from dotenv import load_dotenv
 
 # Charge les variables d'environnement depuis le fichier .env
 load_dotenv()
 
-# Pr├®-requis :
-# 1. pip install langchain-google-genai chromadb python-dotenv pypdf
-# 2. Exporter la variable d'environnement GOOGLE_API_KEY (ex: set GOOGLE_API_KEY=...)
-
-from langchain_community.document_loaders import DirectoryLoader, PyPDFLoader
+from langchain_community.document_loaders import DirectoryLoader, PyPDFLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_community.vectorstores import Chroma
@@ -19,70 +16,68 @@ from langchain_community.vectorstores import Chroma
 PERSIST_DIRECTORY = "./chroma_db"
 EMBEDDING_MODEL = "models/gemini-embedding-001"
 
-def build_vector_db(data_directory: str, persist_directory: str = PERSIST_DIRECTORY) -> Chroma:
+def build_vector_db(persist_directory: str = PERSIST_DIRECTORY) -> Chroma:
     """
-    Ing├¿re les fichiers .txt d'un dossier, les d├®coupe selon la strat├®gie d├®finie,
-    puis les vectorise et les stocke dans une base ChromaDB locale.
+    Ingère les documents depuis plusieurs sources (Contrats, Lois AL, Lois NY),
+    injecte les métadonnées de filtrage, les découpe, et les stocke dans ChromaDB.
     """
-    print(f"Chargement des documents depuis le dossier : {data_directory}")
-    # Support both PDF and TXT for maximum flexibility
-    from langchain_community.document_loaders import TextLoader
+    all_documents = []
     
-    documents = []
-    # Load PDFs
-    pdf_loader = DirectoryLoader(data_directory, glob="**/*.pdf", loader_cls=PyPDFLoader)
-    documents.extend(pdf_loader.load())
+    # Définition des sources et de leurs métadonnées associées
+    # Chaque source est un tuple (chemin, doc_type, state)
+    sources = [
+        ("./data/contracts", "contract", None),
+        ("./data/laws/AL", "law", "AL"),
+        ("./data/laws/NY", "law", "NY"),
+    ]
     
-    # Load TXTs (with robust encoding fallback)
-    def load_txt(file_path):
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                return f.read()
-        except:
-            with open(file_path, "r", encoding="windows-1252", errors="replace") as f:
-                return f.read()
+    print("=== Démarrage de l'ingestion multi-sources ===")
+    
+    for path, doc_type, state in sources:
+        if not os.path.exists(path):
+            print(f"⚠ [INFOS] Le dossier '{path}' n'existe pas. Passage à la source suivante.")
+            continue
+            
+        print(f"Chargement de : {path} (type={doc_type}, state={state})")
+        
+        # Chargement des PDFs
+        pdf_loader = DirectoryLoader(path, glob="**/*.pdf", loader_cls=PyPDFLoader)
+        source_docs = pdf_loader.load()
+        
+        # Chargement des TXTs
+        txt_loader = DirectoryLoader(path, glob="**/*.txt", loader_cls=TextLoader)
+        source_docs.extend(txt_loader.load())
+        
+        # Injection des métadonnées personnalisées pour le filtrage
+        for doc in source_docs:
+            doc.metadata["doc_type"] = doc_type
+            if state:
+                doc.metadata["state"] = state
+        
+        all_documents.extend(source_docs)
 
-    txt_loader = DirectoryLoader(data_directory, glob="**/*.txt", loader_cls=TextLoader)
-    documents.extend(txt_loader.load())
-    
-    if not documents:
-        print("Aucun document trouv├®.")
+    if not all_documents:
+        print("❌ Aucun document trouvé dans les sources spécifiées.")
         return None
 
-    print(f"{len(documents)} document(s) charg├®(s).")
+    print(f"Total documents chargés : {len(all_documents)}")
 
-    # Task 2: Strat├®gie de Chunking (Crucial)
-    # -------------------------------------------------------------------------------------------------
-    # JUSTIFICATION DE LA STRAT├ëGIE :
-    # FR: Une taille de chunk (`chunk_size`) de 1000 caract├¿res permet de conserver les clauses 
-    # juridiques de longueur moyenne (par ex. clause r├®solutoire, indexation) intactes et riches 
-    # en contexte dans un m├¬me bloc vectoris├®. 
-    # Le chevauchement (`chunk_overlap`) de 200 caract├¿res est essentiel pour ne pas couper le 
-    # contexte aux fronti├¿res des blocs. C'est critique pour les contrats de bail commercial afin 
-    # de ne pas dissocier des ├®l├®ments cl├®s (comme des valeurs num├®riques, un taux de p├®nalit├®, ou 
-    # des dates d'application) du reste de leur clause d'appartenance.
-    #
-    # EN: A chunk size of 1000 characters ensures that standard legal clauses remain complete within
-    # a single semantic block. The 200-character overlap prevents contextual loss at the boundaries,
-    # which is especially important to avoid splitting numerical values (e.g., indexation rates) 
-    # from the entities they refer to.
-    # -------------------------------------------------------------------------------------------------
+    # Stratégie de Chunking (1000/200) - Conservée selon spécifications
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
         chunk_overlap=200
     )
     
-    chunks = text_splitter.split_documents(documents)
-    print(f"D├®coupage termin├® : {len(chunks)} chunks cr├®├®s.")
+    chunks = text_splitter.split_documents(all_documents)
+    print(f"Découpage terminé : {len(chunks)} chunks créés avec métadonnées injectées.")
 
-    # Task 3: Vectorisation et Stockage Local
-    print(f"Vectorisation avec le mod├¿le {EMBEDDING_MODEL} et cr├®ation de la base de donn├®es...")
+    # Vectorisation et Stockage Local
+    print(f"Vectorisation avec {EMBEDDING_MODEL}...")
     embeddings = GoogleGenerativeAIEmbeddings(model=EMBEDDING_MODEL)
 
-    # Nettoyage de la base existante si n├®cessaire pour repartir sur une base propre
     if os.path.exists(persist_directory):
-        print("Suppression de l'ancienne base ChromaDB locale...")
-        shutil.rmtree(persist_directory)
+        print("Nettoyage de l'ancienne base ChromaDB...")
+        shutil.rmtree(persist_directory, ignore_errors=True)
 
     vectorstore = Chroma.from_documents(
         documents=chunks,
@@ -90,42 +85,38 @@ def build_vector_db(data_directory: str, persist_directory: str = PERSIST_DIRECT
         persist_directory=persist_directory
     )
     
-    print(f"Base vectorielle persist├®e avec succ├¿s dans : {persist_directory}")
+    print(f"Base vectorielle persistée dans : {persist_directory}")
     return vectorstore
 
-def get_retriever(persist_directory: str = PERSIST_DIRECTORY, contract_id: Optional[str] = None):
+def get_retriever(persist_directory: str = PERSIST_DIRECTORY, 
+                  doc_type: Optional[str] = None, 
+                  state: Optional[str] = None,
+                  k: int = 4):
     """
-    Task 4: Expose le retriever.
-    Initialise la base depuis le disque local pour retourner le retriever Langchain.
-    Permet un retour des 3 chunks les plus pertinents (k=3).
-    
-    Args:
-        persist_directory (str): Le chemin vers la base de donn├®es Chroma locale.
-        contract_id (str, optional): Si fourni, permet de filtrer la recherche sur un contrat sp├®cifique.
+    Expose le retriever avec support de filtrage par métadonnées (doc_type, state).
     """
     embeddings = GoogleGenerativeAIEmbeddings(model=EMBEDDING_MODEL)
     
-    # On recharge la base Chroma stock├®e en local
     vectorstore = Chroma(
         persist_directory=persist_directory,
         embedding_function=embeddings
     )
     
-    # Configuration des param├¿tres de recherche
-    search_kwargs = {"k": 5}
+    search_kwargs = {"k": k}
     
-    # Filtre optionnel par document/contrat si un contract_id est demand├®
-    # ChromaDB permet de filtrer sur les metadonn├®es (le TextLoader stocke le chemin dans 'source')
-    if contract_id:
-        # Clean the contract_id to be more flexible (replace spaces with nothing or underscores for better matching)
-        # We'll use a simple approach: if anyone of the keywords is in the source, it matches.
-        # More securely, let's just use the last digit if present
-        import re
-        match = re.search(r'\d+', contract_id)
-        if match:
-            search_kwargs["filter"] = {"source": {"$contains": f"_{match.group(0)}" if "_" in f"_{match.group(0)}" else match.group(0)}}
+    # Construction dynamique du filtre ChromaDB
+    # Utilise la syntaxe $and si plusieurs filtres sont actifs
+    filters = []
+    if doc_type:
+        filters.append({"doc_type": {"$eq": doc_type}})
+    if state:
+        filters.append({"state": {"$eq": state}})
+        
+    if filters:
+        if len(filters) == 1:
+            search_kwargs["filter"] = filters[0]
         else:
-             search_kwargs["filter"] = {"source": {"$contains": contract_id.replace(" ", "_")}}
+            search_kwargs["filter"] = {"$and": filters}
 
     retriever = vectorstore.as_retriever(
         search_type="similarity",
@@ -134,50 +125,37 @@ def get_retriever(persist_directory: str = PERSIST_DIRECTORY, contract_id: Optio
     
     return retriever
 
-
 if __name__ == '__main__':
-    # ---------------------------------------------------------
-    # BLOC DE TEST RAPIDE (Ex├®cution locale)
-    # ---------------------------------------------------------
-    
-    # Attention: N├®cessite que la variable d'environnement GOOGLE_API_KEY soit d├®finie.
-    # os.environ["GOOGLE_API_KEY"] = "AIza........."
-    
-    test_data_dir = "./Lease_Agreement"
-    test_db_dir = "./chroma_test_db"
+    # --- BLOC DE TEST DU PIVOT MULTI-SOURCES ---
+    test_db_dir = "./chroma_pivot_test_db"
     
     try:
-        print("=== INITIALISATION DU TEST ===")
-        if not os.path.exists(test_data_dir):
-            print(f"ÔÜá´©Å [ATTENTION] Le dossier '{test_data_dir}' n'existe pas. Cr├®ez-le et placez-y vos PDF.")
-            exit(1)
+        print("\n[TEST] 1. Ingestion Multi-Sources")
+        # Note: Si les dossiers sont vides ou absents, le code affichera un warning mais ne plantera pas.
+        build_vector_db(persist_directory=test_db_dir)
         
-        # 1. Appel de l'ingestion / cr├®ation de base
-        print("\n=== ├ëVALUATION : build_vector_db ===")
-        build_vector_db(data_directory=test_data_dir, persist_directory=test_db_dir)
+        print("\n[TEST] 2. Test du Filtrage Métadonnées (Loi NY)")
+        # Simulation d'une recherche uniquement dans les lois de New York
+        retriever_ny = get_retriever(persist_directory=test_db_dir, doc_type="law", state="NY")
         
-        # 2. Appel de l'exposition du retriever
-        print("\n=== ├ëVALUATION : get_retriever ===")
-        retriever = get_retriever(persist_directory=test_db_dir)
+        test_query = "Quelles sont les obligations du bailleur concernant les réparations structurelles ?"
+        print(f"Requête filtrée (Laws/NY) : '{test_query}'")
         
-        # 3. Test de r├®cup├®ration (invocation du retriever)
-        test_query = "Quel est le taux d'indexation et l'ILC de r├®f├®rence ?"
-        print(f"\nRequ├¬te utilisateur : '{test_query}'")
+        # Le retriever renverra une liste vide s'il n'y a pas de documents NY dans la DB
+        docs = retriever_ny.invoke(test_query)
         
-        docs = retriever.invoke(test_query)
-        
-        print("\n=== R├ëSULTATS DU RETRIEVER ===")
+        print(f"\n=== RESULTATS DU TEST ({len(docs)} documents trouvés) ===")
         for i, doc in enumerate(docs, 1):
-            print(f"--- Fichier source : {doc.metadata.get('source', 'Inconnu')} ---")
-            print(f"Extrait {i} : {doc.page_content}\n")
+            source = doc.metadata.get('source', 'Inconnu')
+            d_type = doc.metadata.get('doc_type', 'N/A')
+            st = doc.metadata.get('state', 'N/A')
+            print(f"[{i}] Source: {source} | Type: {d_type} | State: {st}")
+            # print(f"Contenu : {doc.page_content[:100]}...\n")
             
     except Exception as e:
-        print(f"\n[ERREUR LORS DU TEST] : {e}")
-        print("Note: Veillez ├á bien exporter votre cl├® GOOGLE_API_KEY dans votre terminal.")
+        print(f"\n❌ [ERREUR TEST] : {e}")
         
     finally:
-        # Nettoyage de la DB de test uniquement (On ne supprime surtout pas tes contrats PDF !)
-        print("=== NETTOYAGE ===")
         if os.path.exists(test_db_dir):
             shutil.rmtree(test_db_dir, ignore_errors=True)
-        print("Base de donn├®es de test supprim├®e (les erreurs de verrouillage sous Windows sont ignor├®es).")
+        print("\n[TEST] Nettoyage terminé.")
