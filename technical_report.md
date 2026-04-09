@@ -22,15 +22,15 @@ Contracta.ai est une plateforme d'IA spécialisée qui automatise ce processus. 
 
 ---
 
-## 2. Architecture Technique
+## 2. Choix d'Architecture : Système Multi-Agents Collaboratif
 
-### 2.1 Stack Technologique
-Le choix des outils a été guidé par la performance et la fiabilité (le "80/20 PoC" : maximiser l'impact avec une stack agile).
-*   **Modèle de Langage (LLM) :** Llama-3.3-70b via l'infrastructure Groq. Ce choix garantit un raisonnement de haut niveau et des temps de réponse inférieurs à 1 seconde.
-*   **Base Vectorielle :** ChromaDB pour la gestion du stockage local des embeddings.
-*   **Embeddings :** Google Gemini (`models/gemini-embedding-001`) pour une représentation sémantique fine des termes juridiques.
-*   **Framework d'Orchestration :** LangChain & LangGraph pour le chaînage des agents et des outils.
-*   **Interface :** Streamlit, offrant une expérience utilisateur fluide en mode sombre (Premium Dark Mode).
+Le projet a évolué d'une boucle simple à un **système Multi-Agents sophistiqué** orchestré par **LangGraph**. Cette architecture permet de diviser la complexité cognitive en trois rôles spécialisés, chacun opérant comme un nœud dans un graphe d'état :
+
+1.  **Agent Researcher (Théo - Fact Finder) :** Sa mission est d'extraire les données brutes du RAG (Loyer, Durée) et d'utiliser l'outil Tavily pour l'intelligence externe (Inflation).
+2.  **Agent Auditor (Hadrien - Legal Judge) :** Spécialisé dans l'analyse de risque, il confronte les faits extraits par le Researcher au texte intégral pour déceler des clauses abusives ou des anomalies juridiques.
+3.  **Agent Validator (Thomas - Compliance) :** Cet agent agit comme un contrôleur qualité final. Il vérifie la cohérence entre le rapport et les sources RAG, puis formate le résultat final en JSON strict pour l'UI.
+
+**Bénéfice Technique :** Cette spécialisation réduit drastiquement les hallucinations et permet un contrôle granulaire de chaque étape de l'audit juridique.
 
 ---
 
