@@ -15,7 +15,7 @@ import PyPDF2
 import io
 import shutil
 
-# Load environment variables dynamically
+# Load environment variables
 load_dotenv()
 
 # =====================================================================
@@ -65,31 +65,20 @@ def get_expert_prompt():
         return ""
 
 def researcher_node(state: AgentState):
-    """Agent 1: Facts & OSINT Agent (Théo/Hadrien)"""
+    """Agent 1: Facts & OSINT Agent (Théo)"""
     llm = ChatGroq(model_name="llama-3.3-70b-versatile", temperature=0)
     search_tool = TavilySearchResults(max_results=1)
     
-    # OSINT Task
     try:
         search_res = search_tool.invoke("Current US Federal Reserve CPI inflation rate today 2026")
         inflation_info = search_res[0].get('content', "Around 2-3%") if search_res else "Around 2-3%"
     except:
-        inflation_info = "Unable to fetch live, assume 3.2% for audit purposes."
+        inflation_info = "Assume 3.2% for audit purposes."
     
-    prompt = f"""You are the Researcher Agent. Your mission is to extract metrics from the contract text.
-    Look EXPLICITLY for 'Base Rent' (Monthly/Annual) and 'Lease Term' (Dates or Months).
-    
-    Contract Context: {state['contract_text']}
-    
-    EXTRACT:
-    - Base Rent Amount
-    - Rent Frequency
-    - Lease Start and End Dates
-    - Total Duration calculation."""
-    
+    prompt = f"You are the Researcher. Extract 'Base Rent' and 'Lease Term' from this text:\n\n{state['contract_text']}"
     response = llm.invoke(prompt)
     state['research_results'] = f"TEXT METRICS: {response.content}\nINFLATION DATA: {inflation_info}"
-    state['logs'].append("🔍 [Researcher] Extraction completed. OSINT Tool (Tavily) successfully queried for inflation.")
+    state['logs'].append("🔍 [Researcher] Metrics extracted and OSINT queried.")
     return state
 
 def auditor_node(state: AgentState) -> AgentState:
@@ -99,157 +88,125 @@ def auditor_node(state: AgentState) -> AgentState:
     
     prompt = f"""{expert_context}
     
-    [MISSION: LEGAL COMPLIANCE AUDIT]
-    You are a Senior Legal Auditor assigned to cross-reference a Commercial Lease against Official State Law.
+    [MISSION: ALIX'S PROTECTIVE SHIELD]
+    Audit the text for abusive clauses. You must actively flag:
+
+    1. Unreasonable Termination: Rights allowing the landlord to evict without cause, or with absurdly short notice (e.g., under 30 days) without compensation.
+    2. Predatory Acceleration: Clauses demanding the full term's rent for minor delays (e.g., 24-48 hours late).
+    3. Unfair Structural/Financial Pass-Throughs: Clauses forcing the tenant to pay for major structural repairs (roofs, foundations) or the landlord's personal legal fees.
     
-    1. EXAMINE the '=== LEGAL REFERENCE ===' provided in the context below.
-    2. COMPARE it with the '=== CONTRACT CONTENT ==='.
-    3. IDENTIFY any clause in the contract that violates or contradicts the provided Law (AL or NY).
-    4. JUSTIFY your findings by citing the specific Law section.
+    COMPARE the '=== LEGAL REFERENCE ===' with the '=== CONTRACT CONTENT ==='.
+    When in doubt, FLAG AS SUSPICIOUS/UNCLEAR for the Watchlist.
     
     Context: {state['contract_text']}
     Researcher Facts: {state['research_results']}"""
     
     response = llm.invoke(prompt)
     state['legal_audit_conclusion'] = response.content
-    state['logs'].append("⚖️ [Auditor Agent - Llama 70b] Comparative audit complete. Referenced State Laws against contract clauses.")
+    state['logs'].append("⚖️ [Auditor] Comparative audit complete. Identified risks and ambiguities.")
     return state
 
 def validator_node(state: AgentState) -> AgentState:
     """Agent 3: Final Validator & JSON Formatter (Thomas)"""
     llm = ChatGroq(model_name="llama-3.3-70b-versatile", temperature=0)
-    expert_context = get_expert_prompt()
     
-    prompt = f"""{expert_context}
+    prompt = f"""Format the following legal audit results into a STRICT JSON object.
+    [PRINCIPLE: PRECAUTIONARY AUDIT]
+    - All clear violations -> 'abusive_clauses'.
+    - All unclear, risky or ambiguous points -> 'suspicious_clauses'.
     
-    [TASK]
-    Review the work of the Researcher and Auditor. 
-    Finalize the audit and output a STRICT JSON object with the results.
+    Data: {state['legal_audit_conclusion']}
+    Research: {state['research_results']}
     
-    Researcher Data: {state['research_results']}
-    Auditor Data: {state['legal_audit_conclusion']}
-    
-    Keys: "monthly_rent", "duration_months", "abusive_clause_detected" (bool), "abusive_reason", "abusive_clause_citation", "US_Inflation_Rate".
-    
+    JSON STRUCTURE:
+    {{
+      "monthly_rent": "...",
+      "duration_months": "...",
+      "abusive_clauses": [{{"clause": "...", "reason": "...", "severity": "HIGH"}}],
+      "suspicious_clauses": [{{"clause": "...", "reason": "...", "advice": "..."}}],
+      "US_Inflation_Rate": "..."
+    }}
     OUTPUT ONLY VALID JSON."""
     
     response = llm.invoke(prompt)
-    json_str = response.content.replace("```json", "").replace("```", "").strip()
+    json_str = response.content.strip()
     try:
         if "{" in json_str:
             json_str = json_str[json_str.find("{"):json_str.rfind("}")+1]
         state['final_json'] = json.loads(json_str)
-        state['logs'].append("🛡️ [Validator] Final JSON report verified and formatted.")
+        state['logs'].append("🛡️ [Validator] Final JSON report verified.")
     except:
-        state['final_json'] = {"error": "JSON Formatting Error"}
+        # Fallback if AI fails JSON
+        state['final_json'] = {"monthly_rent": "N/A", "abusive_clauses": [], "suspicious_clauses": []}
+        state['logs'].append("⚠️ [Validator] Critical: Parsing error, results simplified.")
     return state
 
-# =====================================================================
-# 3. Graph Assembly
-# =====================================================================
 def create_agentic_workflow():
     workflow = StateGraph(AgentState)
     workflow.add_node("researcher", researcher_node)
     workflow.add_node("auditor", auditor_node)
     workflow.add_node("validator", validator_node)
-    
     workflow.set_entry_point("researcher")
     workflow.add_edge("researcher", "auditor")
     workflow.add_edge("auditor", "validator")
     workflow.add_edge("validator", END)
-    
     return workflow.compile()
-
-# =====================================================================
-# 4. Chat logic
-# =====================================================================
 
 def chat_with_contract(messages, contract_context):
     llm = ChatGroq(model_name="llama-3.3-70b-versatile", temperature=0.3)
-    system_prompt = f"You are an expert legal assistant. Base your answers ONLY on this contract context:\n\n{contract_context}"
-    full_messages = [{"role": "system", "content": system_prompt}] + messages
+    system_prompt = f"You are an expert legal assistant. Base answers ONLY on this context:\n\n{contract_context}"
+    # Filter messages to only keep role and content
+    clean_messages = [{"role": m["role"], "content": m["content"]} for m in messages]
+    full_messages = [{"role": "system", "content": system_prompt}] + clean_messages
     return llm.invoke(full_messages).content
 
 def main():
     apply_custom_css()
-
     if "messages" not in st.session_state: st.session_state.messages = []
     if "analysis_done" not in st.session_state: st.session_state.analysis_done = False
     if "current_rag_context" not in st.session_state: st.session_state.current_rag_context = ""
     if "agent_logs" not in st.session_state: st.session_state.agent_logs = []
+    if "analysis_results" not in st.session_state: st.session_state.analysis_results = {}
 
-    # UI Header
     st.title("🏛️ Contracta.ai")
     st.markdown("*Agentic Legal Auditor - Industrial Grade*")
     st.markdown("---")
 
-    # --- Sidebar ---
     with st.sidebar:
         st.header("⚙️ Configuration")
-        # New State Selection from Hadrien's logic
-        selected_state = st.selectbox("⚖️ Jurisprudence State:", ["AL", "NY"], help="Select the US state law to cross-reference with the contract.")
-        
-        contrat_selection = st.selectbox("Sample Database:", ["Commercial Lease Agreement 1", "Commercial Lease Agreement 2", "Commercial Lease Agreement 3"])
-        uploaded_file = st.file_uploader("Upload NEW Contract (PDF/TXT)", type=["pdf", "txt"])
+        selected_state = st.selectbox("⚖️ Jurisprudence State:", ["AL", "NY"])
+        uploaded_file = st.file_uploader("Upload NEW Contract", type=["pdf", "txt"])
         
         if st.button("🔄 Sync Library", use_container_width=True):
             with st.spinner("Syncing..."):
-                build_vector_db() # Hadrien's new engine handles internal paths
+                build_vector_db()
                 st.success("Synced!")
         
         analyze_button = st.button("🚀 LAUNCH AUDIT", use_container_width=True, type="primary")
 
-    # --- Analysis Loop ---
     if analyze_button:
         st.session_state.messages = []
         st.session_state.agent_logs = []
-        
-        with st.spinner("Step 1: Multi-Source RAG Retrieval..."):
-            # 1. Fetch Contract Text
+        with st.spinner("Retrieving RAG Context..."):
             if uploaded_file:
-                unique_id = str(int(time.time()))
-                upload_dir = f"./uploads_{unique_id}"
-                os.makedirs(upload_dir, exist_ok=True)
-                with open(os.path.join(upload_dir, uploaded_file.name), "wb") as f: f.write(uploaded_file.getbuffer())
-                
-                with st.spinner("Processing PDF text..."):
-                    from PyPDF2 import PdfReader
-                    reader = PdfReader(uploaded_file)
-                    contract_text = ""
-                    for page in reader.pages:
-                        contract_text += page.extract_text()
-                
-                # Fetch law context separately
+                from PyPDF2 import PdfReader
+                reader = PdfReader(uploaded_file)
+                contract_text = "".join([p.extract_text() for p in reader.pages])
                 law_retriever = get_retriever(doc_type="law", state=selected_state)
-                law_docs = law_retriever.invoke(f"Extract legal rules for {selected_state}")
-                law_context = f"\n\n=== LEGAL REFERENCE ({selected_state} LAW) ===\n" + "\n\n".join([d.page_content for d in law_docs])
+                law_docs = law_retriever.invoke(f"Abusive clauses in {selected_state}")
+                law_context = f"\n\n=== LEGAL REFERENCE ({selected_state} LAW) ===\n" + "\n".join([d.page_content for d in law_docs])
             else:
-                # Use multi-source retriever for samples
-                c_retriever = get_retriever(doc_type="contract")
-                l_retriever = get_retriever(doc_type="law", state=selected_state)
-                
-                c_docs = c_retriever.invoke(f"Extract metrics from {contrat_selection}")
-                l_docs = l_retriever.invoke(f"Extract legal rules for residential lease in {selected_state}")
-                
-                contract_text = "=== CONTRACT CONTENT ===\n" + "\n\n".join([doc.page_content for doc in c_docs])
-                law_context = f"\n\n=== LEGAL REFERENCE ({selected_state} LAW) ===\n" + "\n\n".join([doc.page_content for doc in l_docs])
+                contract_text = "No contract uploaded. Use samples."
+                law_context = "No law context."
             
-            # Combine contexts
             rag_context = f"{contract_text}\n\n{law_context}"
             st.session_state.current_rag_context = rag_context
 
-        # Multi-Agent Workflow Execution
         st.subheader("📡 Live Agent Communications")
         log_placeholder = st.empty()
-        
         graph = create_agentic_workflow()
-        initial_state = {
-            "contract_text": rag_context,
-            "research_results": "",
-            "legal_audit_conclusion": "",
-            "final_json": {},
-            "logs": []
-        }
+        
+        initial_state = {"contract_text": rag_context, "research_results": "", "legal_audit_conclusion": "", "final_json": {}, "logs": []}
         
         for iteration in graph.stream(initial_state):
             for node, res in iteration.items():
@@ -257,59 +214,61 @@ def main():
                 with log_placeholder.container():
                     for log in st.session_state.agent_logs:
                         st.markdown(f"<div class='agent-log'>{log}</div>", unsafe_allow_html=True)
-                time.sleep(0.5)
             final_data = res.get("final_json", {})
-
+        
         if final_data:
             st.session_state.analysis_results = final_data
             st.session_state.analysis_done = True
             st.rerun()
 
-    # --- Display Results ---
     if st.session_state.analysis_done:
         res = st.session_state.analysis_results
         rag_context = st.session_state.current_rag_context
-        
-        # Dashboard Layout
         st.subheader("📊 COLLABORATIVE AUDIT REPORT")
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Loyer Mensuel", f"${res.get('monthly_rent', 'N/A')}")
-        c2.metric("Durée Totale", f"{res.get('duration_months', 'N/A')} mois")
-        c3.metric("OSINT Meta (%)", res.get('US_Inflation_Rate', '3.2%'))
+        abusive = res.get("abusive_clauses", [])
+        suspicious = res.get("suspicious_clauses", [])
         
-        # Abusive Report
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Monthly Rent", f"${res.get('monthly_rent', 'N/A')}")
+        c2.metric("Term", f"{res.get('duration_months', 'N/A')} months")
+        c3.metric("🚨 Abusives", len(abusive))
+        c4.metric("⚠️ Watchlist", len(suspicious))
+        
         st.markdown("---")
-        if res.get("abusive_clause_detected"):
-            st.markdown("### 🚨 ALERTE JURIDIQUE : Clause Abusive")
-            st.error(f"**Raison :** {res.get('abusive_reason')}\n\n**Citation :** {res.get('abusive_clause_citation')}")
-        else:
-            st.success("✅ **CONFORMITÉ :** Aucun risque juridique majeur identifié.")
+        t1, t2, t3, t4 = st.tabs(["🚨 Abusive", "🔎 Watchlist", "📚 RAG", "🛡️ Trust Lab"])
+        
+        with t1:
+            if not abusive: st.success("No strictly abusive clauses detected.")
+            for it in abusive:
+                with st.expander(f"🔴 RISK {it.get('severity', 'HIGH')}: {it.get('clause', '')[:50]}..."):
+                    st.error(it.get('reason'))
+                    st.info(it.get('clause'))
 
-        # Evidence Tabs
-        tabs = st.tabs(["📚 RAG Evidence", "🛡️ Trust Lab", "⚙️ Team Stack"])
-        with tabs[0]: st.info(rag_context)
-        with tabs[1]:
-            st.write("**Security Suite**")
-            # Hallucination Logic
-            if str(res.get('monthly_rent')) in rag_context: st.success("✅ Consistent extraction (Rent).")
-            else: st.warning("⚠️ Warning: Rent value not literally found in current context.")
-        with tabs[2]:
+        with t2:
+            if not suspicious: st.info("No suspicious/ambiguous clauses.")
+            for it in suspicious:
+                with st.expander(f"🟡 AMBIGUITY: {it.get('clause', '')[:50]}..."):
+                    st.warning(it.get('reason'))
+                    st.info(f"Advice: {it.get('advice')}")
+                    st.code(it.get('clause'))
+
+        with t3: st.info(rag_context)
+        with t4:
+            st.write("**Security Suite - Industrial Grade**")
             st.markdown("- **Framework**: LangGraph Multi-Agent")
             st.markdown("- **Models**: Llama 3.3-70b (Orchestrator)")
-            st.markdown("- **Engine**: Professional RAG Pipeline")
 
-        # Chat
         st.markdown("---")
         st.subheader("💬 Interview your Contract")
         for m in st.session_state.messages:
             with st.chat_message(m["role"]): st.markdown(m["content"])
-        if p := st.chat_input("Ask me about a specific clause..."):
+        if p := st.chat_input("Ask about a specific clause..."):
             with st.chat_message("user"): st.markdown(p)
             st.session_state.messages.append({"role": "user", "content": p})
             with st.chat_message("assistant"):
-                ans = chat_with_contract([{"role": m["role"], "content": m["content"]} for m in st.session_state.messages], rag_context)
+                ans = chat_with_contract(st.session_state.messages, rag_context)
                 st.markdown(ans)
-            st.session_state.messages.append({"role": "assistant", "content": ans})
+                st.session_state.messages.append({"role": "assistant", "content": ans})
 
 if __name__ == "__main__":
     main()

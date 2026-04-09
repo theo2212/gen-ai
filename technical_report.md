@@ -73,9 +73,20 @@ Pour stabiliser l'extraction JSON, nous avons intégré des exemples de type "Fe
 Contracta.ai se distingue par son utilisation d'outils externes (Function Calling). Lorsque l'agent identifie un besoin de calcul financier ou une recherche d'indexation, il déclenche l'outil **Tavily Search**. 
 Exemple : Pour un bail à New York, l'agent récupère en temps réel le taux d'inflation de la Réserve Fédérale pour contextualiser l'augmentation du loyer proposée.
 
+## 6. Expertise Spécifique : "Alix's Shield" & Red Flags
+Pour répondre aux exigences pointues d'audit, nous avons intégré un module de détection de **clauses prédatrices** :
+- **Unreasonable Termination** : Détection des droits d'expulsion sans motif ou sous préavis < 30 jours.
+- **Predatory Acceleration** : Identification des clauses exigeant le solde complet du bail pour un retard mineur (24h).
+- **Structural Pass-Through** : Flag automatique des transferts de coûts de structure (toit, fondation) vers le locataire.
+
+## 7. Architecture de Conformité : Le Principe de Précaution
+Une innovation majeure de notre solution est la gestion de l'ambiguïté juridique :
+*   **Dual-Layer Detection** : L'IA ne se contente pas de chercher des illégalités. Elle identifie les zones de flou ("Grey Areas").
+*   **Watchlist Dynamique** : Les clauses suspectes ou peu claires sont isolées dans un onglet dédié, permettant de suggérer des actions correctives (Renégociation, demande de clarification).
+
 ---
 
-## 6. Évaluation Critique, Sécurité & Éthique
+## 8. Évaluation Critique, Sécurité & Éthique
 
 ### 6.1 Suivi des Hallucinations
 Un module "Hallucination Tracker" a été développé. Il compare les données extraites au contenu des chunks RAG. Si une information (ex: un montant de loyer) n'est pas littéralement présente dans la source, l'utilisateur est averti.

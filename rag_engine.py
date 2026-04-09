@@ -79,11 +79,32 @@ def build_vector_db(persist_directory: str = PERSIST_DIRECTORY) -> Chroma:
         print("Nettoyage de l'ancienne base ChromaDB...")
         shutil.rmtree(persist_directory, ignore_errors=True)
 
-    vectorstore = Chroma.from_documents(
-        documents=chunks,
-        embedding=embeddings,
-        persist_directory=persist_directory
-    )
+    # Initialisation de la base vectorielle avec un PersistentClient (Fix: no such table: tenants)
+    batch_size = 50
+    print(f"Indexation par lots de {batch_size} pour respecter les quotas API...")
+    
+    import chromadb
+    client = chromadb.PersistentClient(path=persist_directory)
+    
+    # On utilise langchain_chroma ou langchain_community selon les dépendances
+    try:
+        from langchain_chroma import Chroma as LangchainChroma
+        vectorstore = LangchainChroma(
+            client=client,
+            embedding_function=embeddings,
+        )
+    except ImportError:
+        vectorstore = Chroma(
+            client=client,
+            embedding_function=embeddings,
+        )
+
+    import time
+    for i in range(0, len(chunks), batch_size):
+        batch = chunks[i:i + batch_size]
+        vectorstore.add_documents(batch)
+        print(f"Lot {i//batch_size + 1}/{len(chunks)//batch_size + 1} indexé...")
+        time.sleep(2)
     
     print(f"Base vectorielle persistée dans : {persist_directory}")
     return vectorstore
@@ -91,16 +112,26 @@ def build_vector_db(persist_directory: str = PERSIST_DIRECTORY) -> Chroma:
 def get_retriever(persist_directory: str = PERSIST_DIRECTORY, 
                   doc_type: Optional[str] = None, 
                   state: Optional[str] = None,
-                  k: int = 4):
+                  k: int = 6):
     """
-    Expose le retriever avec support de filtrage par métadonnées (doc_type, state).
+    Expose le retriever avec support de filtrage par métadonnées.
     """
     embeddings = GoogleGenerativeAIEmbeddings(model=EMBEDDING_MODEL)
     
-    vectorstore = Chroma(
-        persist_directory=persist_directory,
-        embedding_function=embeddings
-    )
+    import chromadb
+    client = chromadb.PersistentClient(path=persist_directory)
+    
+    try:
+        from langchain_chroma import Chroma as LangchainChroma
+        vectorstore = LangchainChroma(
+            client=client,
+            embedding_function=embeddings,
+        )
+    except ImportError:
+        vectorstore = Chroma(
+            client=client,
+            embedding_function=embeddings,
+        )
     
     search_kwargs = {"k": k}
     
