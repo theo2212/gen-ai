@@ -57,7 +57,7 @@ def apply_custom_css():
 # 2. Agent Node Functions
 # =====================================================================
 
-def get_alix_prompt():
+def get_expert_prompt():
     try:
         with open("Prompt_for_GENAI.txt", "r", encoding="utf-8") as f:
             return f.read()
@@ -93,34 +93,55 @@ def researcher_node(state: AgentState):
     return state
 
 def auditor_node(state: AgentState) -> AgentState:
-    """Agent 2: Final Legal Auditor & JSON Validator (Thomas/Alix)"""
+    """Agent 2: Legal Compliance Auditor (Alix)"""
     llm = ChatGroq(model_name="llama-3.3-70b-versatile", temperature=0)
-    alix_prompt = get_alix_prompt()
+    expert_context = get_expert_prompt()
     
-    prompt = f"""{alix_prompt}
+    prompt = f"""{expert_context}
     
-    [URGENT INSTRUCTION]
-    You are the Final Auditor. Take the Researcher's Raw Data and the Contract Text.
-    Produce the final audited report in STRICT JSON format.
+    [MISSION: LEGAL COMPLIANCE AUDIT]
+    You are a Senior Legal Auditor assigned to cross-reference a Commercial Lease against Official State Law.
     
-    Researcher Findings: {state['research_results']}
-    Full Text Excerpt: {state['contract_text']}
+    1. EXAMINE the '=== LEGAL REFERENCE ===' provided in the context below.
+    2. COMPARE it with the '=== CONTRACT CONTENT ==='.
+    3. IDENTIFY any clause in the contract that violates or contradicts the provided Law (AL or NY).
+    4. JUSTIFY your findings by citing the specific Law section.
     
-    OUTPUT ONLY ONE VALID JSON OBJECT."""
+    Context: {state['contract_text']}
+    Researcher Facts: {state['research_results']}"""
+    
+    response = llm.invoke(prompt)
+    state['legal_audit_conclusion'] = response.content
+    state['logs'].append("⚖️ [Auditor Agent - Llama 70b] Comparative audit complete. Referenced State Laws against contract clauses.")
+    return state
+
+def validator_node(state: AgentState) -> AgentState:
+    """Agent 3: Final Validator & JSON Formatter (Thomas)"""
+    llm = ChatGroq(model_name="llama-3.3-70b-versatile", temperature=0)
+    expert_context = get_expert_prompt()
+    
+    prompt = f"""{expert_context}
+    
+    [TASK]
+    Review the work of the Researcher and Auditor. 
+    Finalize the audit and output a STRICT JSON object with the results.
+    
+    Researcher Data: {state['research_results']}
+    Auditor Data: {state['legal_audit_conclusion']}
+    
+    Keys: "monthly_rent", "duration_months", "abusive_clause_detected" (bool), "abusive_reason", "abusive_clause_citation", "US_Inflation_Rate".
+    
+    OUTPUT ONLY VALID JSON."""
     
     response = llm.invoke(prompt)
     json_str = response.content.replace("```json", "").replace("```", "").strip()
-    
-    # Robust Cleaning
     try:
         if "{" in json_str:
             json_str = json_str[json_str.find("{"):json_str.rfind("}")+1]
         state['final_json'] = json.loads(json_str)
-        state['logs'].append("⚖️ [Auditor] Final analysis completed and JSON report generated.")
-    except Exception:
-        state['final_json'] = {"error": "Failure to build JSON from analysis."}
-        state['logs'].append("❌ [Auditor] Fatal JSON Parsing Error.")
-        
+        state['logs'].append("🛡️ [Validator] Final JSON report verified and formatted.")
+    except:
+        state['final_json'] = {"error": "JSON Formatting Error"}
     return state
 
 # =====================================================================
@@ -130,10 +151,12 @@ def create_agentic_workflow():
     workflow = StateGraph(AgentState)
     workflow.add_node("researcher", researcher_node)
     workflow.add_node("auditor", auditor_node)
+    workflow.add_node("validator", validator_node)
     
     workflow.set_entry_point("researcher")
     workflow.add_edge("researcher", "auditor")
-    workflow.add_edge("auditor", END)
+    workflow.add_edge("auditor", "validator")
+    workflow.add_edge("validator", END)
     
     return workflow.compile()
 
@@ -162,99 +185,57 @@ def main():
 
     # --- Sidebar ---
     with st.sidebar:
-<<<<<<< HEAD
         st.header("⚙️ Configuration")
+        # New State Selection from Hadrien's logic
+        selected_state = st.selectbox("⚖️ Jurisprudence State:", ["AL", "NY"], help="Select the US state law to cross-reference with the contract.")
+        
         contrat_selection = st.selectbox("Sample Database:", ["Commercial Lease Agreement 1", "Commercial Lease Agreement 2", "Commercial Lease Agreement 3"])
         uploaded_file = st.file_uploader("Upload NEW Contract (PDF/TXT)", type=["pdf", "txt"])
         
         if st.button("🔄 Sync Library", use_container_width=True):
             with st.spinner("Syncing..."):
-                build_vector_db(data_directory="./contracts")
+                build_vector_db() # Hadrien's new engine handles internal paths
                 st.success("Synced!")
-=======
-        st.markdown("<h2>🏛️ Control Panel</h2>", unsafe_allow_html=True)
-        st.subheader("⚖️ Legal Jurisdiction")
-        selected_state = st.selectbox("Select State of Reference:", ["AL", "NY"])
->>>>>>> c39294fb3fa8483fd7509a5cf7e7809027f6f584
         
         analyze_button = st.button("🚀 LAUNCH AUDIT", use_container_width=True, type="primary")
 
-<<<<<<< HEAD
     # --- Analysis Loop ---
-=======
-        if st.button("🔄 Sync Vector DB", use_container_width=True):
-            with st.spinner("Syncing all sources (Contracts, Laws)..."):
-                build_vector_db()
-                st.success("Full Sync Complete!")
-
-    # --- Analysis Execution ---
->>>>>>> c39294fb3fa8483fd7509a5cf7e7809027f6f584
     if analyze_button:
         st.session_state.messages = []
         st.session_state.agent_logs = []
         
-        with st.spinner("Step 1: RAG Context Retrieval..."):
-            unique_id = str(int(time.time()))
-            
-            # Setup path for this session
+        with st.spinner("Step 1: Multi-Source RAG Retrieval..."):
+            # 1. Fetch Contract Text
             if uploaded_file:
-<<<<<<< HEAD
-                # Clean temp upload dir
-=======
-                # Local ingestion for the uploaded contract
->>>>>>> c39294fb3fa8483fd7509a5cf7e7809027f6f584
+                unique_id = str(int(time.time()))
                 upload_dir = f"./uploads_{unique_id}"
                 os.makedirs(upload_dir, exist_ok=True)
                 with open(os.path.join(upload_dir, uploaded_file.name), "wb") as f: f.write(uploaded_file.getbuffer())
                 
-<<<<<<< HEAD
-                # Index in a session-specific DB
-                session_db = f"./chroma_db_{unique_id}"
-                build_vector_db(data_directory=upload_dir, persist_directory=session_db)
-                retriever = get_retriever(persist_directory=session_db)
-                target_doc = uploaded_file.name
-            else:
-                retriever = get_retriever(persist_directory="./chroma_db")
-                target_doc = contrat_selection
-=======
-                # We reuse the build logic but just for this temp db
-                # For simplicity in this demo, we'll assume the user wants to analyze this against the selected law
-                st.info("Ingesting uploaded file...")
-                # Special call for build_vector_db might be needed, but let's assume we use the main DB for laws 
-                # and just get the context from the uploaded file text directly for the agents.
                 with st.spinner("Processing PDF text..."):
                     from PyPDF2 import PdfReader
                     reader = PdfReader(uploaded_file)
-                    rag_context = ""
+                    contract_text = ""
                     for page in reader.pages:
-                        rag_context += page.extract_text()
+                        contract_text += page.extract_text()
                 
                 # Fetch law context separately
                 law_retriever = get_retriever(doc_type="law", state=selected_state)
-                law_docs = law_retriever.invoke(f"Extract structural risk clauses for {selected_state}")
-                rag_context += "\n\n=== LEGAL REFERENCE ({selected_state} LAW) ===\n" + "\n".join([d.page_content for d in law_docs])
-                contract_id = uploaded_file.name
+                law_docs = law_retriever.invoke(f"Extract legal rules for {selected_state}")
+                law_context = f"\n\n=== LEGAL REFERENCE ({selected_state} LAW) ===\n" + "\n\n".join([d.page_content for d in law_docs])
             else:
-                # Use multi-source retriever
-                retriever = get_retriever(doc_type="law", state=selected_state)
-                # To maintain compatibility with existing team code flow:
-                # We fetch both the contract and the law context
-                contract_retriever = get_retriever(doc_type="contract")
+                # Use multi-source retriever for samples
+                c_retriever = get_retriever(doc_type="contract")
+                l_retriever = get_retriever(doc_type="law", state=selected_state)
                 
-                c_docs = contract_retriever.invoke(f"Extract metrics from {contrat_selection}")
-                l_docs = retriever.invoke(f"Extract legal rules for residential lease in {selected_state}")
+                c_docs = c_retriever.invoke(f"Extract metrics from {contrat_selection}")
+                l_docs = l_retriever.invoke(f"Extract legal rules for residential lease in {selected_state}")
                 
-                rag_context = "=== CONTRACT CONTENT ===\n" + "\n\n".join([doc.page_content for doc in c_docs])
-                rag_context += f"\n\n=== LEGAL REFERENCE ({selected_state} LAW) ===\n" + "\n\n".join([doc.page_content for doc in l_docs])
-                
-                contract_id = contrat_selection
->>>>>>> c39294fb3fa8483fd7509a5cf7e7809027f6f584
-
-            # CRITICAL: Broad query to get ALL financial/legal points
-            query = "Extract detailed Base Rent, Monthly Rent, Lease Term Duration, Start Date, End Date, Repair and Seizure Obligations."
-            docs = retriever.invoke(query)
-            # Increase context density
-            rag_context = "\n\n".join([doc.page_content for doc in docs])
+                contract_text = "=== CONTRACT CONTENT ===\n" + "\n\n".join([doc.page_content for doc in c_docs])
+                law_context = f"\n\n=== LEGAL REFERENCE ({selected_state} LAW) ===\n" + "\n\n".join([doc.page_content for doc in l_docs])
+            
+            # Combine contexts
+            rag_context = f"{contract_text}\n\n{law_context}"
             st.session_state.current_rag_context = rag_context
 
         # Multi-Agent Workflow Execution

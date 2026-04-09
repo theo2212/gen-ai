@@ -26,9 +26,17 @@ Contracta.ai est une plateforme d'IA spécialisée qui automatise ce processus. 
 
 Le projet a évolué d'une boucle simple à un **système Multi-Agents sophistiqué** orchestré par **LangGraph**. Cette architecture permet de diviser la complexité cognitive en trois rôles spécialisés, chacun opérant comme un nœud dans un graphe d'état :
 
-1.  **Agent Researcher (Théo - Fact Finder) :** Sa mission est d'extraire les données brutes du RAG (Loyer, Durée) et d'utiliser l'outil Tavily pour l'intelligence externe (Inflation).
-2.  **Agent Auditor (Hadrien - Legal Judge) :** Spécialisé dans l'analyse de risque, il confronte les faits extraits par le Researcher au texte intégral pour déceler des clauses abusives ou des anomalies juridiques.
-3.  **Agent Validator (Thomas - Compliance) :** Cet agent agit comme un contrôleur qualité final. Il vérifie la cohérence entre le rapport et les sources RAG, puis formate le résultat final en JSON strict pour l'UI.
+### 3. Workflow Multi-Agents (LangGraph)
+Le système orchestre trois agents spécialisés pour garantir une séparation des responsabilités (Separation of Concerns) :
+1.  **Researcher Agent (Théo)** : Extraction des métriques financières et recherche OSINT (Tavily API) pour l'inflation.
+2.  **Compliance Auditor (Alix)** : Analyse juridique comparative. Cet agent confronte les clauses du bail aux PDF de lois réelles (retrouvés via RAG) pour détecter les clauses abusives.
+3.  **Final Validator (Thomas)** : Contrôle de cohérence, élimination des hallucinations et formatage JSON.
+
+### 4. RAG Engine Multi-Sources & Jurisprudence
+Contrairement aux architectures RAG standards, **Contracta.ai** utilise un `MultiSourceRetriever`. Le système est capable de filtrer sa recherche dans deux bases de données distinctes :
+*   **Base Contrats** : Le document PDF/TXT chargé par l'utilisateur.
+*   **Base Légale (Jurisprudence)** : Une bibliothèque de lois d'États US (Alabama, New York).
+L'IA effectue une **analyse de conformité régulatoire** en temps réel en comparant le contrat aux textes législatifs en vigueur dans l'État sélectionné.
 
 **Bénéfice Technique :** Cette spécialisation réduit drastiquement les hallucinations et permet un contrôle granulaire de chaque étape de l'audit juridique.
 
