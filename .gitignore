@@ -1,8 +1,17 @@
-# Dossiers virtuels
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
 .venv/
 venv/
 env/
-__pycache__/
 
-# Fichiers de configuration locaux
+# Project Specific
 .env
+chroma_db*/
+uploads*/
+temp_*/
+
+# OS
+.DS_Store
+Thumbs.db

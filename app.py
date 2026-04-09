@@ -186,7 +186,7 @@ def main():
         st.subheader("⚙️ Database Management")
         if st.button("🔄 Sync Sample Database", use_container_width=True):
             with st.spinner("Syncing sample documents to ChromaDB..."):
-                build_vector_db(data_directory=".")
+                build_vector_db(data_directory="./contracts")
                 st.success("Sample Database synced!")
         
         st.markdown("<br>", unsafe_allow_html=True)
