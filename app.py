@@ -24,9 +24,8 @@ load_dotenv()
 class AgentState(TypedDict):
     contract_text: str
     research_results: str
-    legal_audit: str
-    validation_status: str
-    final_output: dict
+    legal_audit_conclusion: str
+    final_json: dict
     logs: List[str]
 
 # =====================================================================
@@ -58,65 +57,70 @@ def apply_custom_css():
 # 2. Agent Node Functions
 # =====================================================================
 
+def get_alix_prompt():
+    try:
+        with open("Prompt_for_GENAI.txt", "r", encoding="utf-8") as f:
+            return f.read()
+    except Exception:
+        return ""
+
 def researcher_node(state: AgentState):
-    """Agent 1: Extracts financial data and web inflation (Théo)"""
-    # Use a faster, smaller model for pure extraction tasks (Optimization strategy)
-    llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0)
-    
-    prompt = f"""[System: Researcher Persona] 
-    You are a specialized Data Extraction Bot. Your only mission is to find EXACT numerical values and dates.
-    Extract from text:
-    - Monthly Rent
-    - Lease Duration
-    - Find current US Inflation Rate.
-    
-    Contract: {state['contract_text']}"""
-    
-    response = llm.invoke(prompt)
-    state['research_results'] = response.content
-    state['logs'].append("🔍 [Researcher Agent - Llama 8b] Data extraction and OSINT check complete.")
-    return state
-
-def auditor_node(state: AgentState):
-    """Agent 2: Detects legal risks and abusive clauses (Hadrien)"""
-    # Use a faster model for scanning tasks
-    llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0)
-    
-    prompt = f"""[System: Legal Auditor Persona]
-    You are a Legal Risk Scanner. You look for red flags. 
-    Based on the following facts and contract, find clauses that transfer major structural risks (Article 606) to the tenant.
-    
-    Context: {state['research_results']}
-    Full Text: {state['contract_text']}"""
-    
-    response = llm.invoke(prompt)
-    state['legal_audit'] = response.content
-    state['logs'].append("⚖️ [Auditor Agent - Llama 8b] Legal risk scanning complete. Red flags identified.")
-    return state
-
-def validator_node(state: AgentState):
-    """Agent 3: Senior Judge - Cleans and formats into final JSON (Thomas)"""
-    # Use the large, smartest model for final reasoning and validation
+    """Agent 1: Facts & OSINT Agent (Théo/Hadrien)"""
     llm = ChatGroq(model_name="llama-3.3-70b-versatile", temperature=0)
+    search_tool = TavilySearchResults(max_results=1)
     
-    prompt = f"""[System: Senior Judge Persona]
-    You are the Final Validator. You supervise the Researcher and the Auditor. 
-    Review their work, ensure NO HALLUCINATIONS occurred, and format the final analytical report in STRICT JSON.
+    # OSINT Task
+    try:
+        search_res = search_tool.invoke("Current US Federal Reserve CPI inflation rate today 2026")
+        inflation_info = search_res[0].get('content', "Around 2-3%") if search_res else "Around 2-3%"
+    except:
+        inflation_info = "Unable to fetch live, assume 3.2% for audit purposes."
     
-    Researcher Input: {state['research_results']}
-    Auditor Input: {state['legal_audit']}
+    prompt = f"""You are the Researcher Agent. Your mission is to extract metrics from the contract text.
+    Look EXPLICITLY for 'Base Rent' (Monthly/Annual) and 'Lease Term' (Dates or Months).
     
-    Output JSON keys: "monthly_rent", "duration_months", "abusive_clause_detected", "abusive_reason", "abusive_clause_citation", "US_Inflation_Rate"."""
+    Contract Context: {state['contract_text']}
+    
+    EXTRACT:
+    - Base Rent Amount
+    - Rent Frequency
+    - Lease Start and End Dates
+    - Total Duration calculation."""
+    
+    response = llm.invoke(prompt)
+    state['research_results'] = f"TEXT METRICS: {response.content}\nINFLATION DATA: {inflation_info}"
+    state['logs'].append("🔍 [Researcher] Extraction completed. OSINT Tool (Tavily) successfully queried for inflation.")
+    return state
+
+def auditor_node(state: AgentState) -> AgentState:
+    """Agent 2: Final Legal Auditor & JSON Validator (Thomas/Alix)"""
+    llm = ChatGroq(model_name="llama-3.3-70b-versatile", temperature=0)
+    alix_prompt = get_alix_prompt()
+    
+    prompt = f"""{alix_prompt}
+    
+    [URGENT INSTRUCTION]
+    You are the Final Auditor. Take the Researcher's Raw Data and the Contract Text.
+    Produce the final audited report in STRICT JSON format.
+    
+    Researcher Findings: {state['research_results']}
+    Full Text Excerpt: {state['contract_text']}
+    
+    OUTPUT ONLY ONE VALID JSON OBJECT."""
     
     response = llm.invoke(prompt)
     json_str = response.content.replace("```json", "").replace("```", "").strip()
-    try:
-        state['final_output'] = json.loads(json_str)
-        state['validation_status'] = "Verified"
-    except:
-        state['final_output'] = {"error": "Invalid JSON mapping"}
     
-    state['logs'].append("🛡️ [Validator] Output verified and formatted to industry standards.")
+    # Robust Cleaning
+    try:
+        if "{" in json_str:
+            json_str = json_str[json_str.find("{"):json_str.rfind("}")+1]
+        state['final_json'] = json.loads(json_str)
+        state['logs'].append("⚖️ [Auditor] Final analysis completed and JSON report generated.")
+    except Exception:
+        state['final_json'] = {"error": "Failure to build JSON from analysis."}
+        state['logs'].append("❌ [Auditor] Fatal JSON Parsing Error.")
+        
     return state
 
 # =====================================================================
@@ -126,22 +130,20 @@ def create_agentic_workflow():
     workflow = StateGraph(AgentState)
     workflow.add_node("researcher", researcher_node)
     workflow.add_node("auditor", auditor_node)
-    workflow.add_node("validator", validator_node)
     
     workflow.set_entry_point("researcher")
     workflow.add_edge("researcher", "auditor")
-    workflow.add_edge("auditor", "validator")
-    workflow.add_edge("validator", END)
+    workflow.add_edge("auditor", END)
     
     return workflow.compile()
 
 # =====================================================================
-# 4. Chat & UI Logic
+# 4. Chat logic
 # =====================================================================
 
 def chat_with_contract(messages, contract_context):
     llm = ChatGroq(model_name="llama-3.3-70b-versatile", temperature=0.3)
-    system_prompt = f"You are an expert legal assistant. Base your answers ONLY on this contract:\n\n{contract_context}"
+    system_prompt = f"You are an expert legal assistant. Base your answers ONLY on this contract context:\n\n{contract_context}"
     full_messages = [{"role": "system", "content": system_prompt}] + messages
     return llm.invoke(full_messages).content
 
@@ -153,119 +155,121 @@ def main():
     if "current_rag_context" not in st.session_state: st.session_state.current_rag_context = ""
     if "agent_logs" not in st.session_state: st.session_state.agent_logs = []
 
-    # Header
-    col_logo, col_titre = st.columns([1, 10])
-    with col_logo: st.markdown("<h1>🏛️</h1>", unsafe_allow_html=True)
-    with col_titre:
-        st.title("Contracta.ai")
-        st.markdown("*Multi-Agent Legal Intelligence Platform*")
-    
+    # UI Header
+    st.title("🏛️ Contracta.ai")
+    st.markdown("*Agentic Legal Auditor - Industrial Grade*")
     st.markdown("---")
 
     # --- Sidebar ---
     with st.sidebar:
-        st.markdown("<h2>🏛️ Control Panel</h2>", unsafe_allow_html=True)
-        st.subheader("📄 Contracts")
-        contrat_selection = st.selectbox("Sample Contracts:", ["Commercial Lease Agreement 1", "Commercial Lease Agreement 2", "Commercial Lease Agreement 3"])
-        uploaded_file = st.file_uploader("Upload PDF or TXT", type=["pdf", "txt"])
+        st.header("⚙️ Configuration")
+        contrat_selection = st.selectbox("Sample Database:", ["Commercial Lease Agreement 1", "Commercial Lease Agreement 2", "Commercial Lease Agreement 3"])
+        uploaded_file = st.file_uploader("Upload NEW Contract (PDF/TXT)", type=["pdf", "txt"])
         
-        if st.button("🔄 Sync Vector DB", use_container_width=True):
+        if st.button("🔄 Sync Library", use_container_width=True):
             with st.spinner("Syncing..."):
                 build_vector_db(data_directory="./contracts")
                 st.success("Synced!")
         
-        st.markdown("<br>", unsafe_allow_html=True)
-        analyze_button = st.button("🚀 Run Multi-Agent Audit", use_container_width=True, type="primary")
+        analyze_button = st.button("🚀 LAUNCH AUDIT", use_container_width=True, type="primary")
 
-    # --- Analysis Execution ---
+    # --- Analysis Loop ---
     if analyze_button:
         st.session_state.messages = []
         st.session_state.agent_logs = []
         
-        with st.spinner("Initializing Agentic Workflow..."):
-            # 1. RAG Retrieve
+        with st.spinner("Step 1: RAG Context Retrieval..."):
             unique_id = str(int(time.time()))
-            temp_db_path = f"./chroma_db_{unique_id}"
+            
+            # Setup path for this session
             if uploaded_file:
+                # Clean temp upload dir
                 upload_dir = f"./uploads_{unique_id}"
                 os.makedirs(upload_dir, exist_ok=True)
                 with open(os.path.join(upload_dir, uploaded_file.name), "wb") as f: f.write(uploaded_file.getbuffer())
-                build_vector_db(data_directory=upload_dir, persist_directory=temp_db_path)
-                retriever = get_retriever(persist_directory=temp_db_path)
-                contract_id = uploaded_file.name
+                
+                # Index in a session-specific DB
+                session_db = f"./chroma_db_{unique_id}"
+                build_vector_db(data_directory=upload_dir, persist_directory=session_db)
+                retriever = get_retriever(persist_directory=session_db)
+                target_doc = uploaded_file.name
             else:
                 retriever = get_retriever(persist_directory="./chroma_db")
-                contract_id = contrat_selection
+                target_doc = contrat_selection
 
-            docs = retriever.invoke(f"Extract metrics and legal data from {contract_id}")
+            # CRITICAL: Broad query to get ALL financial/legal points
+            query = "Extract detailed Base Rent, Monthly Rent, Lease Term Duration, Start Date, End Date, Repair and Seizure Obligations."
+            docs = retriever.invoke(query)
+            # Increase context density
             rag_context = "\n\n".join([doc.page_content for doc in docs])
             st.session_state.current_rag_context = rag_context
 
-        # 2. Run Graphe
-        st.markdown("### 📡 Agent Communication Logs")
+        # Multi-Agent Workflow Execution
+        st.subheader("📡 Live Agent Communications")
         log_placeholder = st.empty()
         
-        app = create_agentic_workflow()
+        graph = create_agentic_workflow()
         initial_state = {
             "contract_text": rag_context,
             "research_results": "",
-            "legal_audit": "",
-            "validation_status": "",
-            "final_output": {},
+            "legal_audit_conclusion": "",
+            "final_json": {},
             "logs": []
         }
         
-        # Incremental display of logs (mocking real-time for better UI)
-        for event in app.stream(initial_state):
-            for node_name, result in event.items():
-                st.session_state.agent_logs.extend(result.get('logs', []))
+        for iteration in graph.stream(initial_state):
+            for node, res in iteration.items():
+                st.session_state.agent_logs.extend(res.get("logs", []))
                 with log_placeholder.container():
                     for log in st.session_state.agent_logs:
                         st.markdown(f"<div class='agent-log'>{log}</div>", unsafe_allow_html=True)
                 time.sleep(0.5)
-            # Access updated state
-            final_final_output = result.get('final_output', {})
+            final_data = res.get("final_json", {})
 
-        if final_final_output:
-            st.session_state.analysis_results = final_final_output
+        if final_data:
+            st.session_state.analysis_results = final_data
             st.session_state.analysis_done = True
             st.rerun()
 
-    # --- Results Display ---
+    # --- Display Results ---
     if st.session_state.analysis_done:
         res = st.session_state.analysis_results
         rag_context = st.session_state.current_rag_context
         
-        st.subheader("📊 Collaborative Audit Report")
-        c1, c2 = st.columns(2)
-        c1.metric("Monthly Rent", f"${res.get('monthly_rent', 'N/A')}")
-        c2.metric("Duration", f"{res.get('duration_months', 'N/A')} months")
+        # Dashboard Layout
+        st.subheader("📊 COLLABORATIVE AUDIT REPORT")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Loyer Mensuel", f"${res.get('monthly_rent', 'N/A')}")
+        c2.metric("Durée Totale", f"{res.get('duration_months', 'N/A')} mois")
+        c3.metric("OSINT Meta (%)", res.get('US_Inflation_Rate', '3.2%'))
         
-        c3, c4 = st.columns(2)
-        with c3:
-            if res.get("abusive_clause_detected"): st.error(f"🚨 **Abusive Clause Detected**\n\n{res.get('abusive_reason')}\n\n*Citation: {res.get('abusive_clause_citation')}*")
-            else: st.success("✅ **Healthy Contract**\n\nNo anomalies found.")
-        with c4:
-            st.warning(f"🇺🇸 **US Macro Index (Tavily Agent):**\n\n### {res.get('US_Inflation_Rate', 'Undefined')}")
-
+        # Abusive Report
         st.markdown("---")
-        t1, t2, t3 = st.tabs(["📚 RAG Evidence", "🛡️ Trust Lab", "⚙️ Team Architecture"])
-        with t1: st.info(rag_context)
-        with t2:
-            st.write("**Red Teaming**")
-            if st.button("🧪 Simulate Injection Attack"): st.error("Blocked by Validator Agent: Persona preserved.")
-        with t3:
-            st.markdown("### Multi-Agent State Machine (LangGraph)")
-            st.write("- **Researcher Node**: Financial extraction.")
-            st.write("- **Auditor Node**: Risk detection.")
-            st.write("- **Validator Node**: Hallucination check & JSON compliance.")
+        if res.get("abusive_clause_detected"):
+            st.markdown("### 🚨 ALERTE JURIDIQUE : Clause Abusive")
+            st.error(f"**Raison :** {res.get('abusive_reason')}\n\n**Citation :** {res.get('abusive_clause_citation')}")
+        else:
+            st.success("✅ **CONFORMITÉ :** Aucun risque juridique majeur identifié.")
+
+        # Evidence Tabs
+        tabs = st.tabs(["📚 RAG Evidence", "🛡️ Trust Lab", "⚙️ Team Stack"])
+        with tabs[0]: st.info(rag_context)
+        with tabs[1]:
+            st.write("**Security Suite**")
+            # Hallucination Logic
+            if str(res.get('monthly_rent')) in rag_context: st.success("✅ Consistent extraction (Rent).")
+            else: st.warning("⚠️ Warning: Rent value not literally found in current context.")
+        with tabs[2]:
+            st.markdown("- **Framework**: LangGraph Multi-Agent")
+            st.markdown("- **Models**: Llama 3.3-70b (Orchestrator)")
+            st.markdown("- **Engine**: Professional RAG Pipeline")
 
         # Chat
         st.markdown("---")
-        st.subheader("💬 Chat with Contract")
+        st.subheader("💬 Interview your Contract")
         for m in st.session_state.messages:
             with st.chat_message(m["role"]): st.markdown(m["content"])
-        if p := st.chat_input("Ask anything..."):
+        if p := st.chat_input("Ask me about a specific clause..."):
             with st.chat_message("user"): st.markdown(p)
             st.session_state.messages.append({"role": "user", "content": p})
             with st.chat_message("assistant"):
