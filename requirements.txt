@@ -4,3 +4,9 @@ langchain-community
 langchain-groq
 tavily-python
 python-dotenv
+PyPDF2
+chromadb
+langchain-google-genai
+pypdf
+langchain-community
+langchain-chroma
