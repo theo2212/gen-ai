@@ -162,6 +162,7 @@ def main():
 
     # --- Sidebar ---
     with st.sidebar:
+<<<<<<< HEAD
         st.header("⚙️ Configuration")
         contrat_selection = st.selectbox("Sample Database:", ["Commercial Lease Agreement 1", "Commercial Lease Agreement 2", "Commercial Lease Agreement 3"])
         uploaded_file = st.file_uploader("Upload NEW Contract (PDF/TXT)", type=["pdf", "txt"])
@@ -170,10 +171,24 @@ def main():
             with st.spinner("Syncing..."):
                 build_vector_db(data_directory="./contracts")
                 st.success("Synced!")
+=======
+        st.markdown("<h2>🏛️ Control Panel</h2>", unsafe_allow_html=True)
+        st.subheader("⚖️ Legal Jurisdiction")
+        selected_state = st.selectbox("Select State of Reference:", ["AL", "NY"])
+>>>>>>> c39294fb3fa8483fd7509a5cf7e7809027f6f584
         
         analyze_button = st.button("🚀 LAUNCH AUDIT", use_container_width=True, type="primary")
 
+<<<<<<< HEAD
     # --- Analysis Loop ---
+=======
+        if st.button("🔄 Sync Vector DB", use_container_width=True):
+            with st.spinner("Syncing all sources (Contracts, Laws)..."):
+                build_vector_db()
+                st.success("Full Sync Complete!")
+
+    # --- Analysis Execution ---
+>>>>>>> c39294fb3fa8483fd7509a5cf7e7809027f6f584
     if analyze_button:
         st.session_state.messages = []
         st.session_state.agent_logs = []
@@ -183,11 +198,16 @@ def main():
             
             # Setup path for this session
             if uploaded_file:
+<<<<<<< HEAD
                 # Clean temp upload dir
+=======
+                # Local ingestion for the uploaded contract
+>>>>>>> c39294fb3fa8483fd7509a5cf7e7809027f6f584
                 upload_dir = f"./uploads_{unique_id}"
                 os.makedirs(upload_dir, exist_ok=True)
                 with open(os.path.join(upload_dir, uploaded_file.name), "wb") as f: f.write(uploaded_file.getbuffer())
                 
+<<<<<<< HEAD
                 # Index in a session-specific DB
                 session_db = f"./chroma_db_{unique_id}"
                 build_vector_db(data_directory=upload_dir, persist_directory=session_db)
@@ -196,6 +216,39 @@ def main():
             else:
                 retriever = get_retriever(persist_directory="./chroma_db")
                 target_doc = contrat_selection
+=======
+                # We reuse the build logic but just for this temp db
+                # For simplicity in this demo, we'll assume the user wants to analyze this against the selected law
+                st.info("Ingesting uploaded file...")
+                # Special call for build_vector_db might be needed, but let's assume we use the main DB for laws 
+                # and just get the context from the uploaded file text directly for the agents.
+                with st.spinner("Processing PDF text..."):
+                    from PyPDF2 import PdfReader
+                    reader = PdfReader(uploaded_file)
+                    rag_context = ""
+                    for page in reader.pages:
+                        rag_context += page.extract_text()
+                
+                # Fetch law context separately
+                law_retriever = get_retriever(doc_type="law", state=selected_state)
+                law_docs = law_retriever.invoke(f"Extract structural risk clauses for {selected_state}")
+                rag_context += "\n\n=== LEGAL REFERENCE ({selected_state} LAW) ===\n" + "\n".join([d.page_content for d in law_docs])
+                contract_id = uploaded_file.name
+            else:
+                # Use multi-source retriever
+                retriever = get_retriever(doc_type="law", state=selected_state)
+                # To maintain compatibility with existing team code flow:
+                # We fetch both the contract and the law context
+                contract_retriever = get_retriever(doc_type="contract")
+                
+                c_docs = contract_retriever.invoke(f"Extract metrics from {contrat_selection}")
+                l_docs = retriever.invoke(f"Extract legal rules for residential lease in {selected_state}")
+                
+                rag_context = "=== CONTRACT CONTENT ===\n" + "\n\n".join([doc.page_content for doc in c_docs])
+                rag_context += f"\n\n=== LEGAL REFERENCE ({selected_state} LAW) ===\n" + "\n\n".join([doc.page_content for doc in l_docs])
+                
+                contract_id = contrat_selection
+>>>>>>> c39294fb3fa8483fd7509a5cf7e7809027f6f584
 
             # CRITICAL: Broad query to get ALL financial/legal points
             query = "Extract detailed Base Rent, Monthly Rent, Lease Term Duration, Start Date, End Date, Repair and Seizure Obligations."
