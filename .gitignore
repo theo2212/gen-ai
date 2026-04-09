@@ -9,8 +9,16 @@ env/
 # Project Specific
 .env
 chroma_db*/
+chroma_pivot_test_db/
 uploads*/
 temp_*/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+dist/
 
 # OS
 .DS_Store
