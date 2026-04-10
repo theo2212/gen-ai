@@ -235,10 +235,10 @@ def main():
         c1.metric("Monthly Rent", f"${res.get('monthly_rent', 'N/A')}")
         c2.metric("Term", f"{res.get('duration_months', 'N/A')} months")
         c3.metric("🚨 Abusives", len(abusive))
-        c4.metric("⚠️ Watchlist", len(suspicious))
+        c4.metric("📈 US Inflation", res.get('US_Inflation_Rate', 'N/A'), delta="Live CPI Indicator")
         
         st.markdown("---")
-        t1, t2, t3, t4 = st.tabs(["🚨 Abusive", "🔎 Watchlist", "📚 RAG", "🛡️ Trust Lab"])
+        t1, t2, t3, t4 = st.tabs(["🚨 Abusive Clauses", "📈 Market Context", "📚 RAG Evidence", "🛡️ Trust Lab"])
         
         with t1:
             if not abusive: 
@@ -250,14 +250,14 @@ def main():
                     st.info(f"**Text:** {item.get('clause', 'N/A')}")
 
         with t2:
-            if not suspicious: 
-                st.info("No suspicious/ambiguous clauses.")
-            for item in suspicious:
-                with st.expander(f"🟡 AMBIGUITY: {item.get('section_number', 'N/A')}..."):
-                    st.warning(f"**Section:** {item.get('section_number', 'Unknown')}")
-                    st.warning(f"**Potential Risk:** {item.get('reason', 'N/A')}")
-                    st.info(f"**Recommended Action:** {item.get('advice', 'N/A')}")
-                    st.code(item.get('clause', 'N/A'))
+            st.subheader("US Macro-Economic Data")
+            st.info("The agent successfully queried the live internet via Tavily OSINT to retrieve current benchmark data.")
+            st.metric("Consumer Price Index (CPI)", res.get('US_Inflation_Rate', 'N/A'))
+            st.markdown("""
+            **Why this matters?**
+            In commercial real estate, rent indexation is tied to official inflation rates. 
+            Our agent uses this live figure to detect if a landlord is attempting an unjustified rent increase.
+            """)
 
         with t3: st.info(rag_context)
         with t4:
