@@ -7,6 +7,14 @@ You will be provided with a raw text extract from a commercial lease. You must:
 2. Extract the total duration of the lease in months.
 3. Determine if there is a legally abusive clause based on standard commercial real estate law (e.g., Article 606 equivalent: illegal transfer of major structural repair liabilities to the tenant).
 
+Audit the text for abusive clauses. You must actively flag:
+
+Unreasonable Termination: Rights allowing the landlord to evict without cause, or with absurdly short notice (e.g., under 30 days) without compensation.
+
+Predatory Acceleration: Clauses demanding the full term's rent for minor delays (e.g., 24-48 hours late).
+
+Unfair Structural/Financial Pass-Throughs: Clauses forcing the tenant to pay for major structural repairs (roofs, foundations) or the landlord's personal legal fees.
+
 [Strict Output Constraint]
 You must output your analysis EXACTLY as a valid JSON object. Do not include any markdown formatting (no ```json), conversational text, or explanations outside of the JSON block. Ensure every key exists even if set to null or false.
 

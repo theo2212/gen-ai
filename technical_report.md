@@ -24,83 +24,70 @@ Contracta.ai est une plateforme d'IA spécialisée qui automatise ce processus. 
 
 ## 2. Choix d'Architecture : Système Multi-Agents Collaboratif
 
-Le projet a évolué d'une boucle simple à un **système Multi-Agents sophistiqué** orchestré par **LangGraph**. Cette architecture permet de diviser la complexité cognitive en trois rôles spécialisés, chacun opérant comme un nœud dans un graphe d'état :
+Le projet utilise un **système Multi-Agents sophistiqué** orchestré par **LangGraph**. Cette architecture permet de diviser la complexité cognitive en trois rôles spécialisés, chacun opérant comme un nœud dans un graphe d'état :
 
 ### 3. Workflow Multi-Agents (LangGraph)
-Le système orchestre trois agents spécialisés pour garantir une séparation des responsabilités (Separation of Concerns) :
-1.  **Researcher Agent** : Extraction des métriques financières et recherche OSINT (Tavily API) pour l'inflation.
-2.  **Compliance Auditor** : Analyse juridique comparative. Cet agent confronte les clauses du bail aux PDF de lois réelles (retrouvés via RAG) pour détecter les clauses abusives.
-3.  **Quality Validator** : Contrôle de cohérence, élimination des hallucinations et formatage JSON.
+Le système orchestre trois agents spécialisés utilisant le modèle **Llama-3.3-70b-versatile** via Groq pour garantir une puissance de calcul maximale et une latence minimale :
+
+1.  **Researcher Agent** : Extrait les métriques financières du contrat. Il utilise le **Function Calling** pour lancer des recherches **Tavily API** en temps réel, permettant de récupérer des données macro-économiques (CPI) non présentes dans ses données d'entraînement.
+2.  **Compliance Auditor** : Réalise l'analyse juridique comparative. Il confronte les clauses extraites aux lois d'États (Alabama/NY) stockées localement dans l'application. Le modèle utilise ici un prompt de type "Juriste Expert" pour éviter les omissions.
+3.  **Quality Validator** : Agit comme le superviseur final. Il contrôle la cohérence, élimine les hallucinations et formate le rapport en **JSON strict**. Il gère également le **Chatbot interactif**, en accédant dynamiquement au contexte RAG pour répondre aux questions spécifiques du client avec une traçabilité totale (sections citées).
 
 ### 4. RAG Engine Multi-Sources & Jurisprudence
 Contrairement aux architectures RAG standards, **Contracta.ai** utilise un `MultiSourceRetriever`. Le système est capable de filtrer sa recherche dans deux bases de données distinctes :
-*   **Base Contrats** : Le document PDF/TXT chargé par l'utilisateur.
-*   **Base Légale (Jurisprudence)** : Une bibliothèque de lois d'États US (Alabama, New York).
-L'IA effectue une **analyse de conformité régulatoire** en temps réel en comparant le contrat aux textes législatifs en vigueur dans l'État sélectionné.
-
-**Bénéfice Technique :** Cette spécialisation réduit drastiquement les hallucinations et permet un contrôle granulaire de chaque étape de l'audit juridique.
+*   **Base Contrat** : Le document PDF chargé par l'utilisateur.
+*   **Base Légale (Jurisprudence)** : Une bibliothèque locale de lois.
+Le système sélectionne automatiquement la bonne base de connaissances grâce aux métadonnées injectées dans le prompt, garantissant que l'audit d'un bail à New York ne se réfère pas par erreur aux lois de l'Alabama.
 
 ---
 
 ## 3. Stratégie RAG & Gestion Documentaire
 
 ### 3.1 Ingestion et Préparation des Données
-La fiabilité du système reposant sur la qualité des sources, les contrats ont été prétraités (nettoyage des headers/footers) pour minimiser le bruit.
+La fiabilité du système reposant sur la qualité des sources, les contrats ont été prétraités pour minimiser le bruit. Nous utilisons **Google Gemini-1.0-Pro-Embeddings** pour la vectorisation, offrant une compréhension profonde des concepts légaux.
 
 ### 3.2 Stratégie de Chunking (Découpage)
 Nous avons implémenté une stratégie de **Recursive Character Splitting** :
 - **Taille des blocs (Chunks) :** 1000 caractères.
 - **Chevauchement (Overlap) :** 200 caractères.
-*Justification Technique :* Dans un bail commercial, une clause complète est généralement comprise entre 500 et 800 caractères. Un segment de 1000 caractères garantit que l'agent dispose de l'intégralité d'une clause. Le chevauchement de 20% évite de scinder des chiffres clés (montant du loyer) entre deux blocs.
+*Justification Technique :* Cela garantit qu'une clause complète n'est pas coupée en deux, assurant que le modèle dispose toujours du contexte entier pour juger de la légalité d'un article.
 
 ### 3.3 Retrieval (Récupération)
-Le système utilise une recherche par similarité cosinus pour extraire les **5 morceaux (k=5)** les plus pertinents. Cette valeur a été optimisée pour fournir assez de contexte à l'agent sans saturer sa fenêtre de contexte.
+Le système utilise une recherche par **similarité cosinus** pour extraire les **5 blocs (k=5)** les plus pertinents. Des tests internes ont montré que ce paramètre offrait le meilleur compromis entre richesse du contexte et saturation de la fenêtre d'attention du modèle.
 
 ---
 
 ## 4. Ingénierie du Prompt (Prompt Engineering)
 
-### 4.1 Persona et Directives
-L'agent utilise un prompt système avancé le définissant comme un **"Elite Real Estate Jurist"**. Ce persona impose une rigueur terminologique et un ton professionnel.
+### 4.1 Persona et Température
+L'agent utilise un prompt système le définissant comme un **"Elite Real Estate Jurist"**. La **température est fixée à 0.0** pour l'audit (pour garantir la répétabilité et la précision) et à **0.3 pour le chat** (pour une interaction plus naturelle).
 
 ### 4.2 Few-Shot Prompting
-Pour stabiliser l'extraction JSON, nous avons intégré des exemples de type "Few-Shot". En montrant à l'IA des exemples de contrats bruts suivis de leur analyse JSON parfaite, nous réduisons le taux d'erreur de formatage à quasiment 0%.
+Pour stabiliser l'extraction JSON, nous avons intégré des exemples de type "Few-Shot". Cela force le modèle à suivre un schéma strict, réduisant le taux d'erreur de formatage à quasiment 0%.
 
 ---
 
-## 5. Intelligence Agentique & Outils Externes
-
-Contracta.ai se distingue par son utilisation d'outils externes (Function Calling). Lorsque l'agent identifie un besoin de calcul financier ou une recherche d'indexation, il déclenche l'outil **Tavily Search**. 
-Exemple : Pour un bail à New York, l'agent récupère en temps réel le taux d'inflation de la Réserve Fédérale pour contextualiser l'augmentation du loyer proposée.
-
-## 6. Expertise Spécifique : "Alix's Shield" & Red Flags
-Pour répondre aux exigences pointues d'audit, nous avons intégré un module de détection de **clauses prédatrices** :
-- **Unreasonable Termination** : Détection des droits d'expulsion sans motif ou sous préavis < 30 jours.
-- **Predatory Acceleration** : Identification des clauses exigeant le solde complet du bail pour un retard mineur (24h).
-- **Structural Pass-Through** : Flag automatique des transferts de coûts de structure (toit, fondation) vers le locataire.
-
-## 7. Architecture de Conformité : Le Principe de Précaution
-Une innovation majeure de notre solution est la gestion de l'ambiguïté juridique :
-*   **Dual-Layer Detection** : L'IA ne se contente pas de chercher des illégalités. Elle identifie les zones de flou ("Grey Areas").
-*   **Watchlist Dynamique** : Les clauses suspectes ou peu claires sont isolées dans un onglet dédié, permettant de suggérer des actions correctives (Renégociation, demande de clarification).
+## 5. Expertise Spécifique : "Alix's Shield" & Red Flags
+Nous avons intégré un module de détection de **clauses prédatrices** :
+- **Unreasonable Termination** : Détection des droits d'expulsion abusifs.
+- **Predatory Acceleration** : Identification des pénalités de retard excessives.
+- **Structural Pass-Through** : Flag des transferts de coûts de structure.
+Ce "Shield" repose sur le bon sens juridique et peut être étendu en langage naturel par des experts métiers pour couvrir de nouvelles régulations.
 
 ---
 
-## 8. Évaluation Critique, Sécurité & Éthique
+## 6. Sécurité, Évaluation & Éthique
 
-### 6.1 Suivi des Hallucinations
-Un module "Hallucination Tracker" a été développé. Il compare les données extraites au contenu des chunks RAG. Si une information (ex: un montant de loyer) n'est pas littéralement présente dans la source, l'utilisateur est averti.
+### 6.1 Résilience et Hallucination Tracking
+Un module "Hallucination Tracker" compare les données extraites au contenu source. Si une information n'est pas littéralement présente dans le contrat, l'utilisateur reçoit une alerte de confiance basse.
 
-### 6.2 Résilience aux Injections (Red Teaming)
-Nous avons testé le système contre des attaques par injection de prompt (Jailbreak). Le System Prompt est configuré avec des instructions de priorité haute qui empêchent l'agent de sortir de son rôle, même face à des commandes malveillantes ("Ignore previous instructions").
-
-### 6.3 Analyse des Biais
-Nous avons identifié que le modèle peut présenter un biais de conservatisme, flaguant comme "abusives" des clauses complexes qui pourraient être légales dans certains états US spécifiques. C'est pourquoi un mode "Human-in-the-loop" (Chatbot interactif) permet à l'expert métier de contester l'IA.
+### 6.2 Red Teaming
+Le système a été testé contre des attaques par **Injection de Prompt** et **RAG Poisoning**. Pour mitiger ces risques, nous utilisons des **délimiteurs XML** et une sanitisation stricte des entrées utilisateurs, empêchant le détournement de la mission de l'agent.
 
 ---
 
 ## 7. Conclusion
-Contracta.ai démontre la viabilité des architectures Agentic RAG pour des cas d'usage industriels complexes. Le système allie la puissance de calcul des LLM modernes à la rigueur de recherche du RAG, offrant une solution robuste de "Copilote Juridique".
+Contracta.ai démontre la viabilité des architectures **Agentic RAG**. Le système allie la puissance de calcul des LLM modernes à la rigueur de recherche du RAG, offrant une traçabilité parfaite et une solution robuste pour les métiers à forte régulation.
 
 ---
-*(Fin du rapport technique - Version 1.2 - Corporate Standards)*
+*(Fin du rapport technique - Version Finale validée - Corporate & Safety Standardized)*
