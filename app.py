@@ -65,7 +65,7 @@ def get_expert_prompt():
         return ""
 
 def researcher_node(state: AgentState):
-    """Agent 1: Facts & OSINT Agent (Théo)"""
+    """Execution Layer: Metrics Extraction & OSINT Research"""
     llm = ChatGroq(model_name="llama-3.3-70b-versatile", temperature=0)
     search_tool = TavilySearchResults(max_results=1)
     
@@ -82,7 +82,7 @@ def researcher_node(state: AgentState):
     return state
 
 def auditor_node(state: AgentState) -> AgentState:
-    """Agent 2: Legal Compliance Auditor (Alix)"""
+    """Legal Layer: Regulatory Compliance Audit"""
     llm = ChatGroq(model_name="llama-3.3-70b-versatile", temperature=0)
     expert_context = get_expert_prompt()
     
@@ -96,6 +96,7 @@ def auditor_node(state: AgentState) -> AgentState:
     3. Unfair Structural/Financial Pass-Throughs: Clauses forcing the tenant to pay for major structural repairs (roofs, foundations) or the landlord's personal legal fees.
     
     COMPARE the '=== LEGAL REFERENCE ===' with the '=== CONTRACT CONTENT ==='.
+    For each issue, extract the EXACT SECTION NUMBER (e.g. "Section 10.b") if available.
     When in doubt, FLAG AS SUSPICIOUS/UNCLEAR for the Watchlist.
     
     Context: {state['contract_text']}
@@ -103,11 +104,11 @@ def auditor_node(state: AgentState) -> AgentState:
     
     response = llm.invoke(prompt)
     state['legal_audit_conclusion'] = response.content
-    state['logs'].append("⚖️ [Auditor] Comparative audit complete. Identified risks and ambiguities.")
+    state['logs'].append("⚖️ [Compliance] Regulatory audit complete. Identified risks and ambiguities.")
     return state
 
 def validator_node(state: AgentState) -> AgentState:
-    """Agent 3: Final Validator & JSON Formatter (Thomas)"""
+    """Quality Layer: Output Validation & JSON Formatting"""
     llm = ChatGroq(model_name="llama-3.3-70b-versatile", temperature=0)
     
     prompt = f"""Format the following legal audit results into a STRICT JSON object.
@@ -122,8 +123,10 @@ def validator_node(state: AgentState) -> AgentState:
     {{
       "monthly_rent": "...",
       "duration_months": "...",
-      "abusive_clauses": [{{"clause": "...", "reason": "...", "severity": "HIGH"}}],
-      "suspicious_clauses": [{{"clause": "...", "reason": "...", "advice": "..."}}],
+      "abusive_clauses": [{{"clause": "...", "reason": "...", "section_number": "...", "severity": "HIGH"}}],
+      "suspicious_clauses": [
+        {{"clause": "...", "reason": "...", "section_number": "...", "advice": "..."}}
+      ],
       "US_Inflation_Rate": "..."
     }}
     OUTPUT ONLY VALID JSON."""
@@ -238,19 +241,23 @@ def main():
         t1, t2, t3, t4 = st.tabs(["🚨 Abusive", "🔎 Watchlist", "📚 RAG", "🛡️ Trust Lab"])
         
         with t1:
-            if not abusive: st.success("No strictly abusive clauses detected.")
-            for it in abusive:
-                with st.expander(f"🔴 RISK {it.get('severity', 'HIGH')}: {it.get('clause', '')[:50]}..."):
-                    st.error(it.get('reason'))
-                    st.info(it.get('clause'))
+            if not abusive: 
+                st.success("No strictly abusive clauses detected.")
+            for item in abusive:
+                with st.expander(f"🔴 RISK {item.get('severity', 'HIGH')}: {item.get('section_number', 'N/A')}..."):
+                    st.error(f"**Section:** {item.get('section_number', 'Unknown')}")
+                    st.error(f"**Reason:** {item.get('reason', 'N/A')}")
+                    st.info(f"**Text:** {item.get('clause', 'N/A')}")
 
         with t2:
-            if not suspicious: st.info("No suspicious/ambiguous clauses.")
-            for it in suspicious:
-                with st.expander(f"🟡 AMBIGUITY: {it.get('clause', '')[:50]}..."):
-                    st.warning(it.get('reason'))
-                    st.info(f"Advice: {it.get('advice')}")
-                    st.code(it.get('clause'))
+            if not suspicious: 
+                st.info("No suspicious/ambiguous clauses.")
+            for item in suspicious:
+                with st.expander(f"🟡 AMBIGUITY: {item.get('section_number', 'N/A')}..."):
+                    st.warning(f"**Section:** {item.get('section_number', 'Unknown')}")
+                    st.warning(f"**Potential Risk:** {item.get('reason', 'N/A')}")
+                    st.info(f"**Recommended Action:** {item.get('advice', 'N/A')}")
+                    st.code(item.get('clause', 'N/A'))
 
         with t3: st.info(rag_context)
         with t4:

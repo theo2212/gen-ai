@@ -4,7 +4,7 @@
 **Cours :** Intelligence Artificielle Générative - Masters  
 **Enseignant :** Antoine Palisson  
 **Date :** 09 Avril 2026  
-**Auteurs :** Théo, Hadrien, Alix & Thomas  
+**Auteurs :** Core Development Team - Legal AI Division  
 
 ---
 
@@ -28,9 +28,9 @@ Le projet a évolué d'une boucle simple à un **système Multi-Agents sophistiq
 
 ### 3. Workflow Multi-Agents (LangGraph)
 Le système orchestre trois agents spécialisés pour garantir une séparation des responsabilités (Separation of Concerns) :
-1.  **Researcher Agent (Théo)** : Extraction des métriques financières et recherche OSINT (Tavily API) pour l'inflation.
-2.  **Compliance Auditor (Alix)** : Analyse juridique comparative. Cet agent confronte les clauses du bail aux PDF de lois réelles (retrouvés via RAG) pour détecter les clauses abusives.
-3.  **Final Validator (Thomas)** : Contrôle de cohérence, élimination des hallucinations et formatage JSON.
+1.  **Researcher Agent** : Extraction des métriques financières et recherche OSINT (Tavily API) pour l'inflation.
+2.  **Compliance Auditor** : Analyse juridique comparative. Cet agent confronte les clauses du bail aux PDF de lois réelles (retrouvés via RAG) pour détecter les clauses abusives.
+3.  **Quality Validator** : Contrôle de cohérence, élimination des hallucinations et formatage JSON.
 
 ### 4. RAG Engine Multi-Sources & Jurisprudence
 Contrairement aux architectures RAG standards, **Contracta.ai** utilise un `MultiSourceRetriever`. Le système est capable de filtrer sa recherche dans deux bases de données distinctes :
@@ -103,4 +103,4 @@ Nous avons identifié que le modèle peut présenter un biais de conservatisme, 
 Contracta.ai démontre la viabilité des architectures Agentic RAG pour des cas d'usage industriels complexes. Le système allie la puissance de calcul des LLM modernes à la rigueur de recherche du RAG, offrant une solution robuste de "Copilote Juridique".
 
 ---
-*(Fin du rapport technique - Prêt pour conversion DOCX)*
+*(Fin du rapport technique - Version 1.2 - Corporate Standards)*
